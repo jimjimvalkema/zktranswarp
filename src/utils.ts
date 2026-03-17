@@ -1,6 +1,6 @@
-import { bytesToHex, hexToBytes, padHex, toHex, type Hex } from "viem";
+import { bytesToHex, hexToBytes, padHex, toHex, type Address, type Hex } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
-import type { BurnAccount, PrivateWalletData, u8AsHex, u8sAsHexArrLen32, u8sAsHexArrLen64, WormholeToken } from "./types.ts";
+import type { BurnAccount, PrivateWalletData, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS } from "./constants.ts";
 
@@ -49,10 +49,10 @@ export function padArray<T>({ arr, size, value, dir }: { arr: T[], size: number,
 }
 
 // ------ type utils ------
-export function hexToU8sAsHexArr(hex: Hex, len: number): u8AsHex[] {
+export function hexToU8sAsHexArr(hex: Hex, len: number): U8AsHex[] {
     const unPadded = hexToByteArray(hex)
     const padded = padArray({ arr: unPadded, size: len, value: "0x00", dir: "left" })
-    return padded as u8AsHex[]
+    return padded as U8AsHex[]
 }
 
 export function hexToByteArray(hex: Hex): Hex[] {
@@ -67,14 +67,14 @@ export function hexToByteArray(hex: Hex): Hex[] {
     return bytes
 }
 
-export function hexToU8AsHexLen32(hex: Hex): u8sAsHexArrLen32 {
+export function hexToU8AsHexLen32(hex: Hex): U8sAsHexArrLen32 {
     const unPadded = [...hexToBytes(hex)].map((v) => toHex(v))
-    return padArray({ size: 32, dir: "left", arr: unPadded }) as u8sAsHexArrLen32
+    return padArray({ size: 32, dir: "left", arr: unPadded }) as U8sAsHexArrLen32
 }
 
-export function hexToU8AsHexLen64(hex: Hex): u8sAsHexArrLen64 {
+export function hexToU8AsHexLen64(hex: Hex): U8sAsHexArrLen64 {
     const unPadded = [...hexToBytes(hex)].map((v) => toHex(v))
-    return padArray({ size: 64, dir: "left", arr: unPadded }) as u8sAsHexArrLen64
+    return padArray({ size: 64, dir: "left", arr: unPadded }) as U8sAsHexArrLen64
 }
 
 // ------ wallet utils ------
@@ -108,7 +108,7 @@ function filterBurnAccounts(burnAccounts: Record<Hex, Record<Hex, BurnAccount[]>
  *
  * @returns A flat array of matching {@link BurnAccount} objects.
  */
-export function getAllBurnAccounts(privateData: PrivateWalletData,
+export function getAllBurnAccounts(privateData: PrivateWalletData, ethAccount:Address,
     { difficulties, chainIds, deterministicAccounts = true, nonDeterministicAccounts = true }:
         { difficulties?: bigint[], chainIds?: bigint[], deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
 ): BurnAccount[] {
@@ -116,25 +116,27 @@ export function getAllBurnAccounts(privateData: PrivateWalletData,
     const chainIdsHex = chainIds !== undefined ? chainIds.map((chainId) => padHex(toHex(chainId), { size: 32 })) : undefined;
 
     return [
-        ...(deterministicAccounts ? filterBurnAccounts(privateData.detBurnAccounts, difficultiesHex, chainIdsHex) : []),
-        ...(nonDeterministicAccounts ? filterBurnAccounts(privateData.nonDetBurnAccounts, difficultiesHex, chainIdsHex) : []),
+        ...(deterministicAccounts ? filterBurnAccounts(privateData.burnAccounts[ethAccount], difficultiesHex, chainIdsHex) : []),
+        ...(nonDeterministicAccounts ? filterBurnAccounts(privateData.burnAccounts[ethAccount], difficultiesHex, chainIdsHex) : []),
     ];
 }
 
-export function getDeterministicBurnAccounts(burnWallet: BurnViewKeyManager,
+// TODO move this into BurnViewKeyManager
+// it requires every function that requires a class as input, should just use `this` instead
+export function getDeterministicBurnAccounts(burnWallet: BurnViewKeyManager, ethAccount:Address,
     { difficulty = burnWallet.defaults.powDifficulty, chainId = burnWallet.defaults.chainId }:
         { difficulty?: bigint, chainId?: bigint } = {}
 
 ): BurnAccount[] {
     const difficultyPadded = toHex(difficulty, { size: 32 })
     const chainIdPadded = toHex(chainId, { size: 32 })
-    return burnWallet.privateData.detBurnAccounts[chainIdPadded][difficultyPadded]
-
+    return burnWallet.privateData.burnAccounts[ethAccount].detBurnAccounts[chainIdPadded][difficultyPadded]
 }
 
-export async function getFreshBurnAccount(BurnViewKeyManager: BurnViewKeyManager, wormholeToken: WormholeTokenTest | WormholeToken) {
-    const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData).filter(async (b) => await wormholeToken.read.balanceOf([b.burnAddress]) === 0n)
-}
+// TODO
+// export async function getFreshBurnAccount(BurnViewKeyManager: BurnViewKeyManager, wormholeToken: WormholeTokenTest | WormholeToken) {
+//     const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount).filter(async (b) => await wormholeToken.read.balanceOf([b.burnAddress]) === 0n)
+// }
 
 export async function getCircuitSizesFromContract(wormholeToken: WormholeToken | WormholeTokenTest) {
     const AMOUNT_OF_VERIFIERS = await wormholeToken.read.AMOUNT_OF_VERIFIERS()

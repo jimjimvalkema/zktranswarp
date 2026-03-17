@@ -2,7 +2,7 @@ import type { Hex, Signature, Account, Hash, WalletClient, Address, } from "viem
 import { recoverPublicKey, hashMessage, hexToBigInt, hexToBytes, toHex, getAddress, keccak256, toPrefixedMessage, encodePacked, padHex, bytesToHex, hashTypedData } from "viem";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { BURN_ADDRESS_TYPE, EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_SPENT_PADDING, FAKE_LEAF_DOMAIN, FAKE_NULLIFIER_DOMAIN, getPrivateReMintDomain, NULLIFIER_DOMAIN, PRIVATE_RE_MINT_712_TYPES, PRIVATE_RE_MINT_RELAYER_712_TYPES, TOTAL_BURNED_DOMAIN as TOTAL_BURNED_DOMAIN, TOTAL_MINTED_DOMAIN, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
-import type { FeeData, SignatureData, SignatureInputs, SignatureInputsWithFee, u8AsHex, u8sAsHexArrLen32, u8sAsHexArrLen64 } from "./types.ts";
+import type { FeeData, SignatureData, SignatureInputs, SignatureInputsWithFee, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64 } from "./types.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
 import { encryptTotalSpend } from "./syncing.ts";
 
@@ -64,8 +64,20 @@ export function hashTotalBurnedLeaf({ burnAddress, totalBurned }: { burnAddress:
     return poseidon2Hash([hexToBigInt(burnAddress as Hex), totalBurned, TOTAL_BURNED_DOMAIN])
 }
 
+// ----------
+export function hashViewKeyFromRoot(viewKeyRoot:bigint, viewingKeyIndex:bigint) {
+    return poseidon2Hash([
+            viewKeyRoot,
+            viewingKeyIndex
+        ])
+
+}
+// ------------
+
 
 // ----------- ease of use -----------------
+
+
 export function getBurnAddressSafe({ blindedAddressDataHash, powNonce, difficulty }: { blindedAddressDataHash: bigint, powNonce: bigint, difficulty: bigint }) {
     const addressHash = hashAddress({ blindedAddressDataHash, powNonce })
     const powHash = hashPow({blindedAddressDataHash,powNonce});

@@ -47,8 +47,9 @@ export class BurnWallet {
         )
     }
 
-    async connect() {
-        return await this.burnViewKeyManager.connect()
+    async connect(ethAccount?:Address) {
+        ethAccount??= (await this.viemWallet.getAddresses())[0]
+        return await this.burnViewKeyManager.connect(ethAccount)
     }
 
     /**
@@ -127,16 +128,17 @@ export class BurnWallet {
         return this.burnViewKeyManager.createBurnAccountsBulk(amountOfBurnAccounts, { startingViewKeyIndex, chainId, difficulty, async })
     }
 
-    importBurnAccount(burnAccountImport: string) {
-        const burnAccount = JSON.parse(burnAccountImport) as BurnAccount
-        this.burnViewKeyManager.importBurnAccount(burnAccount)
-    }
+    // TODO
+    // importBurnAccount(burnAccountImport: string) {
+    //     const burnAccount = JSON.parse(burnAccountImport) as BurnAccount
+    //     this.burnViewKeyManager.importBurnAccount(burnAccount)
+    // }
 
     exportBurnAccount() {
         throw new Error("TODO IMPLEMENT")
     }
 
-    exportWalletData() {
-        return JSON.stringify({privateData:this.burnViewKeyManager.privateData, })
+    exportWallet() {
+        return JSON.stringify({privateData:this.burnViewKeyManager.privateData, merkleTree:this.merkleTree })
     }
 }

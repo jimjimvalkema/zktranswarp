@@ -1,6 +1,6 @@
 import { toHex } from "viem"
 import type { Hex, Address, PublicClient } from "viem"
-import type { MerkleData, SpendableBalanceProof, PreSyncedTree, ProofInputs1n, ProofInputs4n, SignatureData, SyncedBurnAccountNonDet, u1AsHexArr, u32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs } from "./types.js"
+import type { MerkleData, SpendableBalanceProof, PreSyncedTree, ProofInputs1n, ProofInputs4n, SignatureData, SyncedBurnAccountNonDet, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs } from "./types.js"
 import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_SPENT_PADDING } from "./constants.ts"
 import { hashTotalSpentLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
@@ -31,8 +31,8 @@ export function formatMerkleProof(merkleProof: LeanIMTMerkleProof<bigint>, maxTr
     const indices = BigInt(merkleProof.index).toString(2).split('').reverse().map((v) => toHex(Number(v)))
     const siblings = merkleProof.siblings.map((v) => toHex(v))
     const formattedMerkleProof = {
-        depth: depth as u32AsHex,
-        indices: padArray({ arr: indices, size: maxTreeDepth, value: "0x00" }) as u1AsHexArr, // todo slice this in the right size. Maybe it need reverse?
+        depth: depth as U32AsHex,
+        indices: padArray({ arr: indices, size: maxTreeDepth, value: "0x00" }) as U1AsHexArr, // todo slice this in the right size. Maybe it need reverse?
         siblings: padArray({ arr: siblings, size: maxTreeDepth, value: "0x00" }) as Hex[]
     }
     return formattedMerkleProof
@@ -256,7 +256,7 @@ export function getPrivInputs(
     const privInputs: PrivateProofInputs = {
         burn_data_private: burn_address_private_proof_data,
         signature_data: signatureData,
-        amount_burn_addresses: toHex(amountOfRealBurnAddresses) as u32AsHex
+        amount_burn_addresses: toHex(amountOfRealBurnAddresses) as U32AsHex
     }
     return privInputs
 }

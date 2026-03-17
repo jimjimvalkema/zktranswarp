@@ -1,4 +1,4 @@
-import type  { Address, GetContractReturnType, Hex, PublicClient, WalletClient } from "viem";
+import type { Address, GetContractReturnType, Hex, PublicClient, WalletClient } from "viem";
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.js";
 import type { InputMap } from "@noir-lang/noir_js";
 import type { UltraHonkBackend } from "@aztec/bb.js";
@@ -8,19 +8,19 @@ export type WormholeToken = GetContractReturnType<WormholeToken$Type["abi"], Req
 
 // we could use import type { FixedLengthArray } from 'type-fest';
 // but for now i just do branded types so it yells at you if you do something stupid, but it doesn't check the length
-export type u8AsHex = Hex & { __brand: 'u8AsHex' }
-export type u8sAsHexArrLen32 = u8AsHex[] & { __brand: 'u8sAsHexArrLen32' }
-export type u8sAsHexArrLen64 = u8AsHex[] & { __brand: 'u8sAsHexArrLen64' }
-export type u32AsHex = Hex & { __brand: 'u32AsHex' }
-export type u1AsHexArr = Hex[] & { __brand: 'u1AsHexArr' }
+export type U8AsHex = Hex & { __brand: 'u8AsHex' }
+export type U8sAsHexArrLen32 = U8AsHex[] & { __brand: 'u8sAsHexArrLen32' }
+export type U8sAsHexArrLen64 = U8AsHex[] & { __brand: 'u8sAsHexArrLen64' }
+export type U32AsHex = Hex & { __brand: 'u32AsHex' }
+export type U1AsHexArr = Hex[] & { __brand: 'u1AsHexArr' }
 
 export interface SignatureData extends InputMap {
     /** Must be exactly 32 bytes */
-    public_key_x: u8sAsHexArrLen32;
+    public_key_x: U8sAsHexArrLen32;
     /** Must be exactly 32 bytes */
-    public_key_y: u8sAsHexArrLen32;
+    public_key_y: U8sAsHexArrLen32;
     /** Must be exactly 64 bytes */
-    signature: u8sAsHexArrLen64;
+    signature: U8sAsHexArrLen64;
 }
 
 export interface FeeData {
@@ -54,9 +54,9 @@ export interface SignatureInputsWithFee {
 }
 
 export interface MerkleData extends InputMap {
-    depth: u32AsHex,
+    depth: U32AsHex,
     // TODO maybe we can save on memory computing indices on the spot instead?
-    indices: u1AsHexArr,
+    indices: U1AsHexArr,
     siblings: Hex[],
 }
 
@@ -86,44 +86,57 @@ export interface PublicProofInputs extends InputMap {
     root: Hex,
     chain_id: Hex, // technically not public since we don't use the cross-chain functionality here, can be revealed does not leak user data
     amount: Hex,
-    pow_difficulty:Hex,
-    re_mint_limit:Hex
-    signature_hash: u8sAsHexArrLen32,
+    pow_difficulty: Hex,
+    re_mint_limit: Hex
+    signature_hash: U8sAsHexArrLen32,
     burn_data_public: BurnDataPublic[],
 }
 
 export interface PrivateProofInputs extends InputMap {
     signature_data: SignatureData,
     burn_data_private: BurnDataPrivate[],
-    amount_burn_addresses: u32AsHex
+    amount_burn_addresses: U32AsHex
 }
 
 export interface ProofInputs extends PublicProofInputs, PrivateProofInputs, InputMap { }
 
 export interface ProofInputs1n extends ProofInputs {
-    amount_burn_addresses: '0x0' & u32AsHex | '0x1' & u32AsHex;
+    amount_burn_addresses: '0x0' & U32AsHex | '0x1' & U32AsHex;
 }
 
 export interface ProofInputs4n extends ProofInputs {
-    amount_burn_addresses: '0x0' & u32AsHex | '0x1' & u32AsHex | '0x2' & u32AsHex | '0x3' & u32AsHex | '0x4' & u32AsHex;
+    amount_burn_addresses: '0x0' & U32AsHex | '0x1' & U32AsHex | '0x2' & U32AsHex | '0x3' & U32AsHex | '0x4' & U32AsHex;
 }
 
 export interface FakeBurnAccount {
-    readonly viewingKey:Hex,
+    readonly viewingKey: Hex,
 }
 
 
+// only info needed to recover the account without storing viewing key which can leak privacy
+export interface RecoverableBurnAccount {
+    readonly ethAccount: Address;
+    readonly viewKeySigMessage: string;
+    readonly viewingKeyIndex: number;
+}
+
+// also to store PoW
+export interface RecoverableBurnAccountWitPow extends RecoverableBurnAccount {
+    readonly powNonce: Hex;
+    readonly difficulty: Hex;
+}
+
 export interface NoPowBurnAccount {
-    readonly viewingKey:bigint,
-    readonly spendingPubKeyX:Hex,
-    readonly blindedAddressDataHash:bigint 
+    readonly viewingKey: bigint,
+    readonly spendingPubKeyX: Hex,
+    readonly blindedAddressDataHash: bigint
 }
 
 export interface NotOwnedBurnAccount {
     readonly powNonce: Hex;
     readonly burnAddress: Address;
     readonly blindedAddressDataHash: Hex;
-    readonly difficulty:Hex;
+    readonly difficulty: Hex;
 }
 
 export interface UnsyncedBurnAccountNonDet extends NotOwnedBurnAccount {
@@ -135,10 +148,10 @@ export interface UnsyncedBurnAccountNonDet extends NotOwnedBurnAccount {
     readonly chainId: Hex;
     readonly blindedAddressDataHash: Hex;
     readonly spendingPubKeyX: Hex;
+    readonly ethAccount: Address;
 }
 
 export interface UnsyncedBurnAccountDet extends UnsyncedBurnAccountNonDet {
-    readonly ethAccount: Address;
     readonly viewKeySigMessage: string;
     readonly viewingKeyIndex: number;
 }
@@ -158,7 +171,7 @@ export interface SyncedBurnAccountDet extends UnsyncedBurnAccountDet {
 }
 
 export type BurnAccountDet = (UnsyncedBurnAccountDet) & Partial<SyncedBurnAccountDet>
-export type BurnAccountNonDet = (UnsyncedBurnAccountNonDet ) & Partial<SyncedBurnAccountNonDet>
+export type BurnAccountNonDet = (UnsyncedBurnAccountNonDet) & Partial<SyncedBurnAccountNonDet>
 export type BurnAccount = BurnAccountDet | BurnAccountNonDet
 // one wallet has one priv pub key pair, but can have multiple burn address, and spent from all of them at once
 // export interface PrivateWallet {
@@ -168,16 +181,21 @@ export type BurnAccount = BurnAccountDet | BurnAccountNonDet
 // }
 
 
+export interface PubKeyHex  { x: Hex, y: Hex }
+
 export interface PrivateWalletData {
-    readonly ethAccount: Address
     readonly viewKeySigMessage: string,
-    detViewKeyCounter: number
     detViewKeyRoot?: Hex,
-    /** stores mapping of chainId=>powDifficulty=>burnAccount. Where chainId and powDifficulty are 32 byte padded Hex. 
-     * burnAccounts[toHex(chainId,{size:32})][toHex(powDifficulty,{size:32})] = BurnAccount */
-    detBurnAccounts: Record<Hex, Record<Hex, BurnAccount[]>>,
-    nonDetBurnAccounts:  Record<Hex, Record<Hex, BurnAccount[]>>,
-    pubKey?: { x: Hex, y: Hex },
+
+    // ethAccountAddress(spending key)=>detBurnAccount=>chainId=>powDifficulty=>viewKeyIndex=>BurnAccount
+    burnAccounts: Record<Address, {
+        pubKey?: PubKeyHex,
+        detViewKeyCounter:number,
+        /** stores mapping of chainId=>powDifficulty=>burnAccount. Where chainId and powDifficulty are 32 byte padded Hex. 
+        * burnAccounts[toHex(chainId,{size:32})][toHex(powDifficulty,{size:32})] = BurnAccount */
+        detBurnAccounts: Record<Hex, Record<Hex, BurnAccount[]>>,
+        nonDetBurnAccounts: Record<Hex, Record<Hex, BurnAccount[]>>,
+    }>,
 }
 export interface SignatureHashPreImg {
     recipientAddress: Address,
@@ -198,15 +216,15 @@ export interface PreSyncedTreeStringifyable {
 }
 
 export interface SelfRelayInputs {
-    publicInputs:PublicProofInputs,
-    proof:Hex,
-    signatureInputs:SignatureInputs,
+    publicInputs: PublicProofInputs,
+    proof: Hex,
+    signatureInputs: SignatureInputs,
 }
 
 export interface RelayInputs {
-    publicInputs:PublicProofInputs,
-    proof:Hex,
-    signatureInputs:SignatureInputsWithFee,
+    publicInputs: PublicProofInputs,
+    proof: Hex,
+    signatureInputs: SignatureInputsWithFee,
 }
 
 

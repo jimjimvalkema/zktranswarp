@@ -1,5 +1,5 @@
 import { hashTypedData, hexToBigInt, recoverPublicKey, type Address, type Hash, type Hex, type Signature } from "viem";
-import type { SignatureData, SignatureInputs, SignatureInputsWithFee, u8sAsHexArrLen32, u8sAsHexArrLen64 } from "./types.ts";
+import type { SignatureData, SignatureInputs, SignatureInputsWithFee, U8sAsHexArrLen32, U8sAsHexArrLen64 } from "./types.ts";
 import { getPrivateReMintDomain, PRIVATE_RE_MINT_712_TYPES, PRIVATE_RE_MINT_RELAYER_712_TYPES } from "./constants.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2";
@@ -79,9 +79,9 @@ export async function signPrivateTransfer({ BurnViewKeyManager, signatureInputs,
     return {
         viemFormatSignature: { signature, pubKeyX, pubKeyY },
         signatureData: {
-            public_key_x: hexToU8sAsHexArr(pubKeyX, 32) as u8sAsHexArrLen32,
-            public_key_y: hexToU8sAsHexArr(pubKeyY, 32) as u8sAsHexArrLen32,
-            signature: hexToU8sAsHexArr(signature.slice(0, 2 + 128) as Hex, 64) as u8sAsHexArrLen64,
+            public_key_x: hexToU8sAsHexArr(pubKeyX, 32) as U8sAsHexArrLen32,
+            public_key_y: hexToU8sAsHexArr(pubKeyY, 32) as U8sAsHexArrLen32,
+            signature: hexToU8sAsHexArr(signature.slice(0, 2 + 128) as Hex, 64) as U8sAsHexArrLen64,
         },
         signatureHash: hash,
     }
