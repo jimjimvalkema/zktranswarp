@@ -12,10 +12,10 @@ import { getBackend } from "../src/proving.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
 import { BurnWallet } from "../src/BurnWallet.ts";
 import { getContract, padHex, toHex} from "viem";
-import type { UnsyncedBurnAccountNonDet } from "../src/types.ts";
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { UnsyncedBurnAccount } from "../src/types.ts";
 
 const CIRCUIT_SIZE = 100;
 const provingThreads = 1 //1; //undefined  // giving the backend more threads makes it hang and impossible to debug // set to undefined to use max threads available
@@ -81,7 +81,7 @@ describe("Token", async function () {
     })
 
     describe("Token", async function () {
-        it("reMint 5x from 100 burn accounts", async function () {
+        it("generate 200 burn accounts", async function () {
             const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
             const amountFreeTokens = await wormholeTokenAlice.read.amountFreeTokens()
             await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
@@ -89,11 +89,11 @@ describe("Token", async function () {
             const alicePrivate = new BurnWallet(alice, powDifficulty, { acceptedChainIds: [BigInt(await publicClient.getChainId())] })
             const amountBurnAddresses = 200
 
-            const burnAccounts: UnsyncedBurnAccountNonDet[] = await alicePrivate.createBurnAccountsBulk(amountBurnAddresses, { async: true })
+            const burnAccounts: UnsyncedBurnAccount[] = await alicePrivate.createBurnAccountsBulk(amountBurnAddresses, { async: true })
             const __dirname = dirname(fileURLToPath(import.meta.url));
-            const path =  join(__dirname, '../data/privateDataAlice.json')
+            const path =  join(__dirname, '../test/data/privateDataAlice.json')
             console.log({path})
-            await writeFile(path, alicePrivate.exportPrivateWalletData(), 'utf-8');
+            await writeFile(path, alicePrivate.exportWallet(), 'utf-8');
             
         })
     })

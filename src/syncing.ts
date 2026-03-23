@@ -5,7 +5,7 @@ import type { Address, Hex, PublicClient } from "viem"
 import { bytesToHex, concatHex, hexToBytes, sliceHex, toHex } from "viem"
 import type { WormholeTokenTest } from "../test/remint2.test.ts"
 import { ENCRYPTED_TOTAL_SPENT_PADDING, WORMHOLE_TOKEN_DEPLOYMENT_BLOCK } from "./constants.ts"
-import type { BurnAccount, PreSyncedTree, SyncedBurnAccountNonDet, UnsyncedBurnAccountNonDet, WormholeToken } from "./types.ts"
+import type { BurnAccount, PreSyncedTree, SyncedBurnAccount, WormholeToken } from "./types.ts"
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { hashNullifier } from "./hashing.ts"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
@@ -137,7 +137,7 @@ export async function decryptTotalSpend({ viewingKey, totalSpentEncrypted }: { v
 export async function syncBurnAccount(
     { wormholeToken, burnAccount, archiveNode }
         : { wormholeToken: WormholeToken | WormholeTokenTest, burnAccount: BurnAccount, archiveNode: PublicClient }
-): Promise<SyncedBurnAccountNonDet> {
+): Promise<SyncedBurnAccount> {
     const viewingKey = BigInt(burnAccount.viewingKey)
     const initialAccountNonce = BigInt(burnAccount.accountNonce ?? 0n)
     let accountNonce = initialAccountNonce
@@ -198,14 +198,10 @@ export async function syncBurnAccount(
     }
 
     const totalReceived = await wormholeToken.read.balanceOf([burnAccount.burnAddress]);
-    const syncedBurnAccount = burnAccount as SyncedBurnAccountNonDet
+    const syncedBurnAccount = burnAccount as SyncedBurnAccount
     syncedBurnAccount.totalSpent = toHex(totalSpent);
     syncedBurnAccount.accountNonce = toHex(accountNonce);
     syncedBurnAccount.totalBurned = toHex(totalReceived)
-    if(totalSpent > totalReceived){
-         console.log({totalReceived, totalSpent, accountNonce,prevSpendable:syncedBurnAccount.spendableBalance, syncedBurnAccount})
-
-    }
    
     syncedBurnAccount.spendableBalance = toHex(totalReceived - totalSpent)
     return syncedBurnAccount
@@ -218,11 +214,11 @@ export async function syncBurnAccount(
  * TODO make walletObject that has syncBurnAccount in it so importBurnAccount is not used since it will do checks in the future (which are redundant rn)
  * @param param0 
  * @returns 
+ * @TODO make ethAccount optional also do that for getAllBurnAccounts (so they both just do all)
  */
-export async function syncMultipleBurnAccounts({ wormholeToken, archiveNode, BurnViewKeyManager, burnAddressesToSync }: { archiveNode: PublicClient, wormholeToken: WormholeToken, BurnViewKeyManager: BurnViewKeyManager, burnAddressesToSync?: Address[] }) {
-    const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData)
+export async function syncMultipleBurnAccounts({ wormholeToken, archiveNode, BurnViewKeyManager, burnAddressesToSync,ethAccount }: { ethAccount:Address,archiveNode: PublicClient, wormholeToken: WormholeToken, BurnViewKeyManager: BurnViewKeyManager, burnAddressesToSync?: Address[] }) {
+    const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount)
     burnAddressesToSync ??= allBurnAccounts.map((v) => v.burnAddress)
-
     const syncedBurnAccounts = await Promise.all(allBurnAccounts.map((burnAccount) => {
         if (burnAddressesToSync.includes(burnAccount.burnAddress)) {
             return syncBurnAccount({ burnAccount, wormholeToken, archiveNode })
@@ -230,7 +226,7 @@ export async function syncMultipleBurnAccounts({ wormholeToken, archiveNode, Bur
             return burnAccount
         }
     }))
-    syncedBurnAccounts.map((burnAccount)=>BurnViewKeyManager.importBurnAccount(burnAccount))
+    await Promise.all(syncedBurnAccounts.map((burnAccount)=>BurnViewKeyManager.importBurnAccount(burnAccount)))
     return BurnViewKeyManager
 }
 

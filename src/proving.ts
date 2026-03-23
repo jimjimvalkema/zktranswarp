@@ -1,6 +1,6 @@
 import { toHex } from "viem"
 import type { Hex, Address, PublicClient } from "viem"
-import type { MerkleData, SpendableBalanceProof, PreSyncedTree, ProofInputs1n, ProofInputs4n, SignatureData, SyncedBurnAccountNonDet, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs } from "./types.js"
+import type { MerkleData, SpendableBalanceProof, PreSyncedTree, ProofInputs1n, ProofInputs4n, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount } from "./types.js"
 import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_SPENT_PADDING } from "./constants.ts"
 import { hashTotalSpentLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
@@ -88,11 +88,11 @@ export function getSpendableBalanceProof(
     }
 }
 
-export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses, amount, largestCircuitSize }: { largestCircuitSize: number, burnAccounts: SyncedBurnAccountNonDet[], selectBurnAddresses: Address[], amount: bigint }) {
+export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses, amount, largestCircuitSize }: { largestCircuitSize: number, burnAccounts: SyncedBurnAccount[], selectBurnAddresses: Address[], amount: bigint }) {
     const sortedBurnAccounts = burnAccounts.sort((a, b) => Number(b.spendableBalance) - Number(a.spendableBalance))
     const encryptedTotalMinted: Hex[] = []
     // man so many copy pasta of same array and big name!! Fix it i cant read this!!!!
-    const burnAccountsAndAmounts: { burnAccount: SyncedBurnAccountNonDet, amountToClaim: bigint }[] = []
+    const burnAccountsAndAmounts: { burnAccount: SyncedBurnAccount, amountToClaim: bigint }[] = []
     let amountLeft = amount
     for (const burnAccount of sortedBurnAccounts) {
         if (selectBurnAddresses.includes(burnAccount.burnAddress)) {
@@ -128,7 +128,7 @@ export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddr
 
 export function getHashedInputs(
     { burnAccount, claimAmount, syncedTree, maxTreeDepth }:
-        { burnAccount: SyncedBurnAccountNonDet, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number }) {
+        { burnAccount: SyncedBurnAccount, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number }) {
 
     // --- inclusion proof ---
     // hash leafs
@@ -268,6 +268,7 @@ export async function createRelayerInputs(
     BurnViewKeyManager: BurnViewKeyManager,
     wormholeToken: WormholeToken | WormholeTokenTest,
     archiveClient: PublicClient,
+    ethAccount: Address,
     opts: CreateRelayerInputsOpts & { feeData: FeeData }
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
 
@@ -278,6 +279,7 @@ export async function createRelayerInputs(
     BurnViewKeyManager: BurnViewKeyManager,
     wormholeToken: WormholeToken | WormholeTokenTest,
     archiveClient: PublicClient,
+    ethAccount: Address,
     opts?: CreateRelayerInputsOpts & { feeData?: undefined }
 ): Promise<{ relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
 
@@ -328,16 +330,18 @@ export async function createRelayerInputs(
     BurnViewKeyManager: BurnViewKeyManager,
     wormholeToken: WormholeToken | WormholeTokenTest,
     archiveClient: PublicClient,
+    ethAccount: Address,
     { circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backend, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, encryptedBlobLen = ENCRYPTED_TOTAL_SPENT_PADDING + EAS_BYTE_LEN_OVERHEAD }:
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
     // set defaults
-    burnAddresses ??= getAllBurnAccounts(BurnViewKeyManager.privateData).map((b) => b.burnAddress)
     powDifficulty ??= await wormholeToken.read.POW_DIFFICULTY()
     reMintLimit ??= await wormholeToken.read.RE_MINT_LIMIT();
     circuitSizes ??= await getCircuitSizesFromContract(wormholeToken);
     chainId ??= BigInt(await archiveClient.getChainId());
     maxTreeDepth ??= await wormholeToken.read.MAX_TREE_DEPTH()
+    // TODO should be a minimum powDifficulty
+    burnAddresses ??= getAllBurnAccounts(BurnViewKeyManager.privateData,ethAccount, {chainIds:[chainId],difficulties:[BigInt(powDifficulty)]}).map((b) => b.burnAddress)
     const largestCircuitSize = circuitSizes[circuitSizes.length - 1]
 
     // start this asap so we can resolve once we need it
@@ -355,9 +359,10 @@ export async function createRelayerInputs(
         wormholeToken: wormholeToken,
         archiveNode: archiveClient,
         BurnViewKeyManager: BurnViewKeyManager,
-        burnAddressesToSync: burnAddresses //@notice, only syncs these addresses!
+        burnAddressesToSync: burnAddresses, //@notice, only syncs these addresses!
+        ethAccount:ethAccount
     })
-    const burnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData) as SyncedBurnAccountNonDet[]
+    const burnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData,ethAccount, {chainIds:[chainId],difficulties:[BigInt(powDifficulty)]}) as SyncedBurnAccount[]
 
     // select burn accounts for spend. Takes highest balances first
     const { burnAccountsAndAmounts, encryptedTotalMinted } = await prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses: burnAddresses, amount, largestCircuitSize: largestCircuitSize })
@@ -382,6 +387,7 @@ export async function createRelayerInputs(
         signatureInputs: signatureInputs,
         chainId: Number(chainId),
         tokenAddress: wormholeToken.address,
+        ethAccount
     })
 
     const syncedTree = await syncedTreePromise;

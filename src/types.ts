@@ -14,6 +14,8 @@ export type U8sAsHexArrLen64 = U8AsHex[] & { __brand: 'u8sAsHexArrLen64' }
 export type U32AsHex = Hex & { __brand: 'u32AsHex' }
 export type U1AsHexArr = Hex[] & { __brand: 'u1AsHexArr' }
 
+type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
 export interface SignatureData extends InputMap {
     /** Must be exactly 32 bytes */
     public_key_x: U8sAsHexArrLen32;
@@ -112,90 +114,82 @@ export interface FakeBurnAccount {
     readonly viewingKey: Hex,
 }
 
-
-// only info needed to recover the account without storing viewing key which can leak privacy
-export interface RecoverableBurnAccount {
-    readonly ethAccount: Address;
-    readonly viewKeySigMessage: string;
-    readonly viewingKeyIndex: number;
-}
-
-// also to store PoW
-export interface RecoverableBurnAccountWitPow extends RecoverableBurnAccount {
-    readonly powNonce: Hex;
-    readonly difficulty: Hex;
-}
-
-export interface NoPowBurnAccount {
-    readonly viewingKey: bigint,
-    readonly spendingPubKeyX: Hex,
-    readonly blindedAddressDataHash: bigint
-}
-
-export interface NotOwnedBurnAccount {
-    readonly powNonce: Hex;
-    readonly burnAddress: Address;
-    readonly blindedAddressDataHash: Hex;
-    readonly difficulty: Hex;
-}
-
-export interface UnsyncedBurnAccountNonDet extends NotOwnedBurnAccount {
-    /**used to encrypt total spend, unconstrained, not a circuit input */
-    readonly viewingKey: Hex;
-    /**used t */
-    readonly powNonce: Hex;
-    readonly burnAddress: Address;
+export type BurnAccountBase = {
+    // always needed
+    readonly ethAccount: Address,
+    readonly difficulty: Hex,
     readonly chainId: Hex;
-    readonly blindedAddressDataHash: Hex;
-    readonly spendingPubKeyX: Hex;
-    readonly ethAccount: Address;
-}
 
-export interface UnsyncedBurnAccountDet extends UnsyncedBurnAccountNonDet {
+    // needed for standard viewKey derivation to recover the rest
     readonly viewKeySigMessage: string;
     readonly viewingKeyIndex: number;
+
+    // always recoverable
+    readonly burnAddress: Address;
+    readonly blindedAddressDataHash: Hex;
+    readonly spendingPubKeyX: Hex,
+
+    // recoverable in standard viewKey derivation with ex: BurnViewKeyManager.createBurnAccount({viewKeySigMessage, viewingKeyIndex, difficulty, chainId, ethAccount}) 
+    readonly powNonce: Hex;
+    readonly viewingKey: Hex;
 }
 
-export interface SyncedBurnAccountNonDet extends UnsyncedBurnAccountNonDet {
-    accountNonce: Hex;
-    totalSpent: Hex;
-    totalBurned: Hex;
-    spendableBalance: Hex;
+export type BurnAccountSyncData = {
+    // state
+    accountNonce: Hex,
+    totalSpent: Hex,
+    totalBurned: Hex,
+    spendableBalance: Hex,
+
+    // syncing stopped at this block (includes that block)
+    lastSyncedBlock: Hex,
+    // lowest possible block where a root can be used to proof
+    minProvableBlock: Hex,
 }
 
-export interface SyncedBurnAccountDet extends UnsyncedBurnAccountDet {
-    accountNonce: Hex;
-    totalSpent: Hex;
-    totalBurned: Hex;
-    spendableBalance: Hex;
-}
+// when viewKey derivation is known, these keys can always be recovered
+type DerivedRecoverableKeys = "spendingPubKeyX" | "burnAddress" | "powNonce" | "viewingKey" | "blindedAddressDataHash";
+type DerivationKeys = "viewKeySigMessage" | "viewingKeyIndex";
+// same as derived but "powNonce" "viewingKey" cant be derived since derivation is unknown
+type UnknownRecoverableKeys = "spendingPubKeyX" | "burnAddress" | "blindedAddressDataHash";
 
-export type BurnAccountDet = (UnsyncedBurnAccountDet) & Partial<SyncedBurnAccountDet>
-export type BurnAccountNonDet = (UnsyncedBurnAccountNonDet) & Partial<SyncedBurnAccountNonDet>
-export type BurnAccount = BurnAccountDet | BurnAccountNonDet
-// one wallet has one priv pub key pair, but can have multiple burn address, and spent from all of them at once
-// export interface PrivateWallet {
-//     viem: { wallet: WalletClient, ethAddress:Address };
-//     pubKey: { x: Hex, y: Hex };
-//     burnWallets: (UnsyncedBurnAccount | SyncedBurnAccount)[] 
-// }
+// -------------- known derivation types -------------------------
+export type UnsyncedDerivedBurnAccount = BurnAccountBase;
+export type UnsyncedDerivedBurnAccountRecoverable = PartialBy<BurnAccountBase, DerivedRecoverableKeys>;
+export type UnsyncedDerivedBurnAccountImportable = UnsyncedDerivedBurnAccountRecoverable & Pick<BurnAccountSyncData, "accountNonce" | "lastSyncedBlock" | "minProvableBlock">
+export type SyncedDerivedBurnAccount = UnsyncedDerivedBurnAccount & BurnAccountSyncData;
+export type DerivedBurnAccount = UnsyncedDerivedBurnAccount & Partial<BurnAccountSyncData>;
 
+// -------------- unknown derivation types -------------------------
+export type UnsyncedUnknownBurnAccount = Omit<BurnAccountBase, DerivationKeys>;
+export type UnsyncedUnknownBurnAccountRecoverable = PartialBy<Omit<BurnAccountBase, DerivationKeys>, UnknownRecoverableKeys>;
+export type UnsyncedUnknownBurnAccountImportable = UnsyncedUnknownBurnAccountRecoverable & Pick<BurnAccountSyncData, "accountNonce" | "lastSyncedBlock" | "minProvableBlock">
+export type SyncedUnknownBurnAccount = UnsyncedUnknownBurnAccount & BurnAccountSyncData;
+export type UnknownBurnAccount = UnsyncedUnknownBurnAccount & Partial<BurnAccountSyncData>;
 
-export interface PubKeyHex  { x: Hex, y: Hex }
+export type BurnAccount = UnknownBurnAccount | DerivedBurnAccount;
+export type UnsyncedBurnAccount = UnsyncedUnknownBurnAccount | UnsyncedDerivedBurnAccountRecoverable
+export type SyncedBurnAccount = SyncedUnknownBurnAccount | SyncedDerivedBurnAccount
 
+export interface PubKeyHex { x: Hex, y: Hex }
+
+export type BurnAccountStorage = Record<Address, {
+    pubKey?: PubKeyHex,
+    detViewKeyCounter: number,
+    /** stores mapping of chainId=>powDifficulty=>{detBurnAccount:BurnAccount[]}. Where chainId and powDifficulty are 32 byte padded Hex. 
+    * burnAccounts[toHex(chainId,{size:32})][toHex(powDifficulty,{size:32})] = BurnAccount */
+    burnAccounts: Record<Hex, Record<Hex,
+        {
+            derivedBurnAccounts: DerivedBurnAccount[],
+            unknownBurnAccounts: UnknownBurnAccount[]
+        }>>,
+}>
 export interface PrivateWalletData {
     readonly viewKeySigMessage: string,
     detViewKeyRoot?: Hex,
 
     // ethAccountAddress(spending key)=>detBurnAccount=>chainId=>powDifficulty=>viewKeyIndex=>BurnAccount
-    burnAccounts: Record<Address, {
-        pubKey?: PubKeyHex,
-        detViewKeyCounter:number,
-        /** stores mapping of chainId=>powDifficulty=>burnAccount. Where chainId and powDifficulty are 32 byte padded Hex. 
-        * burnAccounts[toHex(chainId,{size:32})][toHex(powDifficulty,{size:32})] = BurnAccount */
-        detBurnAccounts: Record<Hex, Record<Hex, BurnAccount[]>>,
-        nonDetBurnAccounts: Record<Hex, Record<Hex, BurnAccount[]>>,
-    }>,
+    burnAccounts: BurnAccountStorage
 }
 export interface SignatureHashPreImg {
     recipientAddress: Address,
@@ -249,7 +243,7 @@ export type CreateRelayerInputsOpts = {
 };
 
 export interface BurnAccountProof {
-    burnAccount: SyncedBurnAccountNonDet,
+    burnAccount: SyncedBurnAccount,
     merkleProofs: SpendableBalanceProof,
     claimAmount: bigint
 }

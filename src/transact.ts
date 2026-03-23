@@ -1,13 +1,14 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { toHex } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
-import type { PreSyncedTree, RelayInputs, SelfRelayInputs, SyncedBurnAccountNonDet, UnsyncedBurnAccountNonDet, WormholeToken } from "./types.ts";
+import type { BurnAccount, PreSyncedTree, RelayInputs, SelfRelayInputs, UnsyncedBurnAccount, WormholeToken } from "./types.ts";
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { getDeploymentBlock } from "./syncing.ts";
 import { getBurnAddressSafe, hashBlindedAddressData } from "./hashing.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_SPENT_PADDING, GAS_LIMIT_TX } from "./constants.ts";
 import { createRelayerInputs } from "./proving.ts";
+import type { BurnWallet } from "./BurnWallet.ts";
 
 
 /**
@@ -56,7 +57,7 @@ export async function burn(
  * @returns 
  */
 export async function safeBurn(
-    burnAccount: UnsyncedBurnAccountNonDet | SyncedBurnAccountNonDet, amount: bigint, wormholeToken: WormholeTokenTest, account: Address,
+    burnAccount: BurnAccount, amount: bigint, wormholeToken: WormholeTokenTest, account: Address,
     { difficulty, reMintLimit, maxTreeDepth }: { difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
 ) {
     difficulty ??= BigInt(await wormholeToken.read.POW_DIFFICULTY())
@@ -89,7 +90,7 @@ export async function safeBurn(
  * @returns 
  */
 export async function superSafeBurn(
-    burnAccount: UnsyncedBurnAccountNonDet | SyncedBurnAccountNonDet, amount: bigint, wormholeToken: WormholeTokenTest, account: Address,
+    burnAccount: BurnAccount, amount: bigint, wormholeToken: WormholeTokenTest, account: Address,
     { difficulty, reMintLimit, maxTreeDepth }: { difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
 ) {
     difficulty ??= BigInt(await wormholeToken.read.POW_DIFFICULTY())
@@ -115,7 +116,7 @@ export async function superSafeBurn(
  *
  * @param amount              - Amount to re-mint (required).
  * @param recipient           - Address that will receive the re-minted tokens (required).
- * @param BurnViewKeyManager       - The caller's private wallet containing burn accounts and signing keys (required).
+ * @param burnViewKeyManager       - The caller's private wallet containing burn accounts and signing keys (required).
  * @param burnAddresses       - Burn addresses to spend from (required).
  * @param wormholeToken       - Contract instance for the WormholeToken (required).
  * @param archiveClient       - Archive-node viem PublicClient used for syncing and log queries (required).
@@ -145,9 +146,10 @@ export async function superSafeBurn(
 export async function proofAndSelfRelay(
     recipient: Address,
     amount: bigint,
-    BurnViewKeyManager: BurnViewKeyManager,
+    burnViewKeyManager: BurnViewKeyManager,
     wormholeToken: WormholeToken | WormholeTokenTest,
     archiveClient: PublicClient,
+    ethAccount:Address,
     { burnAddresses, threads, callData = "0x", callValue = 0n, callCanFail = false, preSyncedTree, backend, deploymentBlock, blocksPerGetLogsReq, circuitSize, maxTreeDepth, encryptedBlobLen = ENCRYPTED_TOTAL_SPENT_PADDING + EAS_BYTE_LEN_OVERHEAD, powDifficulty, reMintLimit }:
         { burnAddresses?: Address[], threads?: number, callData?: Hex, callCanFail?: boolean, callValue?: bigint, preSyncedTree?: PreSyncedTree, backend?: UltraHonkBackend, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint, circuitSize?: number, maxTreeDepth?: number, encryptedBlobLen?: number, powDifficulty?: Hex, reMintLimit?: Hex } = {}
 ) {
@@ -157,9 +159,10 @@ export async function proofAndSelfRelay(
     const { relayInputs: selfRelayInputs } = await createRelayerInputs(
         recipient,
         amount,
-        BurnViewKeyManager,
+        burnViewKeyManager,
         wormholeToken,
         archiveClient,
+        ethAccount,
         {
             powDifficulty,
             reMintLimit,
@@ -181,7 +184,7 @@ export async function proofAndSelfRelay(
 
     return await selfRelayTx(
         selfRelayInputs,
-        BurnViewKeyManager.viemWallet,
+        burnViewKeyManager.viemWallet,
         wormholeToken as WormholeTokenTest,
     )
 }

@@ -1,6 +1,6 @@
 import { bytesToHex, hexToBytes, padHex, toHex, type Address, type Hex } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
-import type { BurnAccount, PrivateWalletData, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken } from "./types.ts";
+import type { BurnAccount, BurnAccountStorage, PrivateWalletData, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS } from "./constants.ts";
 
@@ -78,19 +78,29 @@ export function hexToU8AsHexLen64(hex: Hex): U8sAsHexArrLen64 {
 }
 
 // ------ wallet utils ------
-function filterBurnAccounts(burnAccounts: Record<Hex, Record<Hex, BurnAccount[]>>, selectedDifficulties?: Hex[], selectedChainIds?: Hex[]): BurnAccount[] {
-    selectedChainIds ??= Object.keys(burnAccounts) as Hex[];
+function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDifficulties?: Hex[], selectedChainIds?: Hex[], ethAccounts?: Address[], detBurnAccount = true, nonDetBurnAccounts = true): BurnAccount[] {
+    ethAccounts ??= Object.keys(burnAccountsStorage) as Address[]
+    selectedChainIds ??= ethAccounts.flatMap((addr) => Object.keys(burnAccountsStorage[addr].burnAccounts)) as Hex[]
 
-    return selectedChainIds.flatMap(chainId => {
-        const burnAccountsPerDiff = burnAccounts[chainId];
-        if (!burnAccountsPerDiff) return [];
+    let burnAccounts: BurnAccount[] = []
+    for (const ethAccount of ethAccounts) {
+        for (const chainId of selectedChainIds) {
+            // select all difficulties if selectedDifficulties was not set
+            const difficulties = selectedDifficulties ?? Object.keys(burnAccountsStorage[ethAccount].burnAccounts[chainId]) as Hex[];
+            for (const difficulty of difficulties) {
+                if (detBurnAccount) {
+                    burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].derivedBurnAccounts]
+                }
+                if (nonDetBurnAccounts) {
+                    burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts]
 
-        // remember: can't use ??= here  it would assign on the first iteration and
-        // carry over to all subsequent chainIds, ignoring their actual difficulties.
-        const difficulties = selectedDifficulties ?? Object.keys(burnAccountsPerDiff) as Hex[];
+                }
+            }
+        }
+    }
 
-        return difficulties.flatMap(difficulty => burnAccountsPerDiff[difficulty] ?? []);
-    });
+
+    return burnAccounts
 }
 
 /**
@@ -108,29 +118,26 @@ function filterBurnAccounts(burnAccounts: Record<Hex, Record<Hex, BurnAccount[]>
  *
  * @returns A flat array of matching {@link BurnAccount} objects.
  */
-export function getAllBurnAccounts(privateData: PrivateWalletData, ethAccount:Address,
+export function getAllBurnAccounts(privateData: PrivateWalletData, ethAccount: Address,
     { difficulties, chainIds, deterministicAccounts = true, nonDeterministicAccounts = true }:
         { difficulties?: bigint[], chainIds?: bigint[], deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
 ): BurnAccount[] {
-    const difficultiesHex = difficulties !== undefined ? difficulties.map((diff) => padHex(toHex(diff), { size: 32 })) : undefined;
-    const chainIdsHex = chainIds !== undefined ? chainIds.map((chainId) => padHex(toHex(chainId), { size: 32 })) : undefined;
+    const difficultiesHex = difficulties !== undefined ? difficulties.map((diff) => toHex(diff, { size: 32 }), { size: 32 }) : undefined;
+    const chainIdsHex = chainIds !== undefined ? chainIds.map((chainId) => toHex(chainId, { size: 32 }), { size: 32 }) : undefined;
 
-    return [
-        ...(deterministicAccounts ? filterBurnAccounts(privateData.burnAccounts[ethAccount], difficultiesHex, chainIdsHex) : []),
-        ...(nonDeterministicAccounts ? filterBurnAccounts(privateData.burnAccounts[ethAccount], difficultiesHex, chainIdsHex) : []),
-    ];
+    return filterBurnAccounts(privateData.burnAccounts, difficultiesHex, chainIdsHex, [ethAccount], deterministicAccounts, nonDeterministicAccounts) 
 }
 
 // TODO move this into BurnViewKeyManager
 // it requires every function that requires a class as input, should just use `this` instead
-export function getDeterministicBurnAccounts(burnWallet: BurnViewKeyManager, ethAccount:Address,
+export function getDeterministicBurnAccounts(burnWallet: BurnViewKeyManager, ethAccount: Address,
     { difficulty = burnWallet.defaults.powDifficulty, chainId = burnWallet.defaults.chainId }:
         { difficulty?: bigint, chainId?: bigint } = {}
 
 ): BurnAccount[] {
     const difficultyPadded = toHex(difficulty, { size: 32 })
     const chainIdPadded = toHex(chainId, { size: 32 })
-    return burnWallet.privateData.burnAccounts[ethAccount].detBurnAccounts[chainIdPadded][difficultyPadded]
+    return burnWallet.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].derivedBurnAccounts
 }
 
 // TODO

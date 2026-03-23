@@ -2,7 +2,7 @@
 
 import type { Address, Hex, WalletClient } from "viem";
 import { hashMessage, padHex, toHex } from "viem";
-import type { BurnAccount, PrivateWalletData, UnsyncedBurnAccountNonDet, UnsyncedBurnAccountDet, PreSyncedTreeStringifyable, PreSyncedTree } from "./types.ts"
+import type { BurnAccount, PrivateWalletData, PreSyncedTreeStringifyable, PreSyncedTree } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
@@ -41,7 +41,7 @@ export class BurnWallet {
         this.burnViewKeyManager = new BurnViewKeyManager(
             viemWallet, powDifficulty,
             { 
-                privateWalletData: walletImportParsed ? privateWalletData : walletImportParsed.privateWalletData , 
+                privateWalletData: "privateData" in walletImportParsed  ? walletImportParsed.privateData : undefined , 
                 viewKeySigMessage, acceptedChainIds, chainId 
             }
         )

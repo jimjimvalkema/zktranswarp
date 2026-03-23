@@ -24,7 +24,7 @@ const path =  join(__dirname, './data/privateDataAlice.json')
 
 const CIRCUIT_SIZE = 2;
 const provingThreads = 1 //1; //undefined  // giving the backend more threads makes it hang and impossible to debug // set to undefined to use max threads available
-const PRE_MADE_BURN_ACCOUNTS = await readFile(path,{encoding:"utf-8"});
+const PRE_MADE_BURN_ACCOUNTS = await readFile(path, { encoding: "utf-8" })
 
 export type WormholeTokenTest = ContractReturnType<typeof WormholeTokenContractName>
 
@@ -100,7 +100,7 @@ describe("Token", async function () {
                 let transferTx: Hash = "0x00"
                 const amountTransfers = 2 ** index + Math.floor(Math.random() * startIndex - startIndex / 2);// a bit of noise is always good!
                 totalAmountInserts += amountTransfers + 1
-                const firstTransferTx = await wormholeToken.write.transfer([alice.account.address, 420n])
+                const firstTransferTx = await wormholeToken.write.transfer([(await alice.getAddresses())[0], 420n])
 
                 for (let index = 0; index < amountTransfers; index++) {
                     transferTx = await wormholeToken.write.transfer([aliceBurnAccount.burnAddress, 420n])
@@ -133,12 +133,12 @@ describe("Token", async function () {
         it("reMint 3x from 1 burn account", async function () {
             const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
             const amountFreeTokens = await wormholeTokenAlice.read.amountFreeTokens()
-            await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
+            await wormholeTokenAlice.write.getFreeTokens([(await alice.getAddresses())[0]]) //sends 1_000_000n token
 
             const alicePrivate = new BurnWallet(alice, powDifficulty, {walletDataImport:PRE_MADE_BURN_ACCOUNTS, acceptedChainIds: [BigInt(await publicClient.getChainId())], powDifficulty: powDifficulty })
             const aliceBurnAccount = await alicePrivate.createBurnAccount({viewingKeyIndex:0})
             const amountToBurn = 1000n * 10n ** 18n;
-            await safeBurn(aliceBurnAccount, amountToBurn, wormholeTokenAlice, alice.account.address)
+            await safeBurn(aliceBurnAccount, amountToBurn, wormholeTokenAlice, (await alice.getAddresses())[0])
 
             const claimableBurnAddress = [aliceBurnAccount.burnAddress];
             const reMintRecipient = bob.account.address
@@ -154,6 +154,7 @@ describe("Token", async function () {
                     alicePrivate.burnViewKeyManager,
                     wormholeToken,
                     publicClient,
+                    (await alice.getAddresses())[0],
                     {
                         //callData, 
                         //fullNodeClient, 
@@ -195,7 +196,7 @@ describe("Token", async function () {
             }
 
             // finally check if enough was burned
-            const balanceAlicePublic = await wormholeTokenAlice.read.balanceOf([alice.account.address])
+            const balanceAlicePublic = await wormholeTokenAlice.read.balanceOf([(await alice.getAddresses())[0]])
             const burnedBalanceAlicePrivate = await wormholeTokenAlice.read.balanceOf([claimableBurnAddress[0]])
             assert.equal(burnedBalanceAlicePrivate, amountToBurn, "alicePrivate.burnAddress didn't burn the expected amount of tokens")
             assert.equal(balanceAlicePublic, amountFreeTokens - amountToBurn, "alice didn't burn the expected amount of tokens")
@@ -204,7 +205,7 @@ describe("Token", async function () {
         it("reMint 3x from 2 burn accounts", async function () {
             const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
             const amountFreeTokens = await wormholeTokenAlice.read.amountFreeTokens()
-            await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
+            await wormholeTokenAlice.write.getFreeTokens([(await alice.getAddresses())[0]]) //sends 1_000_000n token
 
             const alicePrivate = new BurnWallet(alice, powDifficulty, {walletDataImport:PRE_MADE_BURN_ACCOUNTS, acceptedChainIds: [BigInt(await publicClient.getChainId())] })
             // PoW nonce hashing is with workers so can be done in parallel!
@@ -219,14 +220,15 @@ describe("Token", async function () {
             let expectedRecipientBalance = 0n
             let reMintTxs: Hex[] = []
             for (const reMintAmount of reMintAmounts) {
-                await superSafeBurn(aliceBurnAccount1, reMintAmount / 2n + 1n, wormholeTokenAlice, alice.account.address)
-                await superSafeBurn(aliceBurnAccount2, reMintAmount / 2n + 1n, wormholeTokenAlice, alice.account.address)
+                await superSafeBurn(aliceBurnAccount1, reMintAmount / 2n + 1n, wormholeTokenAlice, (await alice.getAddresses())[0])
+                await superSafeBurn(aliceBurnAccount2, reMintAmount / 2n + 1n, wormholeTokenAlice, (await alice.getAddresses())[0])
                 const reMintTx = await proofAndSelfRelay(
                     reMintRecipient,
                     reMintAmount,
                     alicePrivate.burnViewKeyManager,
                     wormholeToken,
                     publicClient,
+                    (await alice.getAddresses())[0],
                     {
                         burnAddresses: claimableBurnAddress,
                         //callData, 
@@ -267,7 +269,7 @@ describe("Token", async function () {
             }
 
             // finally check if enough was burned
-            // const balanceAlicePublic = await wormholeTokenAlice.read.balanceOf([alice.account.address])
+            // const balanceAlicePublic = await wormholeTokenAlice.read.balanceOf([(await alice.getAddresses())[0]])
             // const burnedBalanceAlicePrivate1 = await wormholeTokenAlice.read.balanceOf([claimableBurnAddress[0]])
             // const burnedBalanceAlicePrivate2 = await wormholeTokenAlice.read.balanceOf([claimableBurnAddress[1]])
             // assert.equal(burnedBalanceAlicePrivate1, amountToBurn, "alicePrivate.burnAddress didn't burn the expected amount of tokens")
