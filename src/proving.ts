@@ -341,7 +341,7 @@ export async function createRelayerInputs(
     chainId ??= BigInt(await archiveClient.getChainId());
     maxTreeDepth ??= await wormholeToken.read.MAX_TREE_DEPTH()
     // TODO should be a minimum powDifficulty
-    burnAddresses ??= getAllBurnAccounts(BurnViewKeyManager.privateData,ethAccount, {chainIds:[chainId],difficulties:[BigInt(powDifficulty)]}).map((b) => b.burnAddress)
+    burnAddresses ??= getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts:[ethAccount],chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }).map((b) => b.burnAddress)
     const largestCircuitSize = circuitSizes[circuitSizes.length - 1]
 
     // start this asap so we can resolve once we need it
@@ -355,21 +355,23 @@ export async function createRelayerInputs(
     })
 
     // sync burn accounts
-    const syncedPrivateWallet = await syncMultipleBurnAccounts({
-        wormholeToken: wormholeToken,
-        archiveNode: archiveClient,
-        BurnViewKeyManager: BurnViewKeyManager,
-        burnAddressesToSync: burnAddresses, //@notice, only syncs these addresses!
-        ethAccount:ethAccount
-    })
-    const burnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData,ethAccount, {chainIds:[chainId],difficulties:[BigInt(powDifficulty)]}) as SyncedBurnAccount[]
+    const syncedPrivateWallet = await syncMultipleBurnAccounts(
+        archiveClient,
+        wormholeToken,
+        BurnViewKeyManager,
+        {
+            burnAddressesToSync: burnAddresses, //@notice, only syncs these addresses!
+            //ethAccounts: [ethAccount]         // we already know which burn addresses, we don't need to filter based on signer account
+        }
+    )
+    const burnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts:[ethAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }) as SyncedBurnAccount[]
 
     // select burn accounts for spend. Takes highest balances first
     const { burnAccountsAndAmounts, encryptedTotalMinted } = await prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses: burnAddresses, amount, largestCircuitSize: largestCircuitSize })
     circuitSize ??= getCircuitSize(burnAccountsAndAmounts.length, circuitSizes)
 
     // format inputs that wil be signed
-    let signatureInputs: SignatureInputs | SignatureInputsWithFee  = {
+    let signatureInputs: SignatureInputs | SignatureInputsWithFee = {
         recipient: recipient,
         amountToReMint: toHex(amount),
         callData: callData,
@@ -379,7 +381,7 @@ export async function createRelayerInputs(
         encryptedTotalMinted: padWithRandomHex({ arr: encryptedTotalMinted, len: circuitSize, hexSize: encryptedBlobLen, dir: "right" }),
     }
     if (feeData) {
-        signatureInputs = {...signatureInputs, feeData} as SignatureInputsWithFee
+        signatureInputs = { ...signatureInputs, feeData } as SignatureInputsWithFee
     }
 
     const allSignatureDataPromise = signPrivateTransfer({
@@ -399,7 +401,7 @@ export async function createRelayerInputs(
     // nullifiers, noteHashes, merkle proofs
     const nullifiers: bigint[] = []
     const noteHashes: bigint[] = []
-    const burnAccountProofs: (BurnAccountProof|FakeBurnAccountProof)[] = []
+    const burnAccountProofs: (BurnAccountProof | FakeBurnAccountProof)[] = []
     // TODO @Warptoad: check chainId matches burn account. remove burn account with different chainId
     for (let index = 0; index < circuitSize; index++) {
         if (index < burnAccountsAndAmounts.length) {
@@ -421,12 +423,12 @@ export async function createRelayerInputs(
             nullifiers.push(nullifier)
             noteHashes.push(nextTotalSpendNoteHashLeaf)
         } else {
-            const fakeBurnAccount: FakeBurnAccount = {viewingKey:toHex(randomBN254FieldElement())} 
+            const fakeBurnAccount: FakeBurnAccount = { viewingKey: toHex(randomBN254FieldElement()) }
             const burnAccountProof: FakeBurnAccountProof = {
                 burnAccount: fakeBurnAccount,
             }
-            const nullifier = hashFakeNullifier({viewingKey:BigInt(fakeBurnAccount.viewingKey)})
-            const nextTotalSpendNoteHash = hashFakeLeaf({viewingKey:BigInt(fakeBurnAccount.viewingKey)})
+            const nullifier = hashFakeNullifier({ viewingKey: BigInt(fakeBurnAccount.viewingKey) })
+            const nextTotalSpendNoteHash = hashFakeLeaf({ viewingKey: BigInt(fakeBurnAccount.viewingKey) })
             burnAccountProofs.push(burnAccountProof)
 
             nullifiers.push(nullifier)

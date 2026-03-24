@@ -1,6 +1,6 @@
 import { bytesToHex, hexToBytes, padHex, toHex, type Address, type Hex } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
-import type { BurnAccount, BurnAccountStorage, PrivateWalletData, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken } from "./types.ts";
+import type { BurnAccount, BurnAccountImportable, BurnAccountStorage, ViewKeyData, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS } from "./constants.ts";
 
@@ -82,7 +82,7 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
     ethAccounts ??= Object.keys(burnAccountsStorage) as Address[]
     selectedChainIds ??= ethAccounts.flatMap((addr) => Object.keys(burnAccountsStorage[addr].burnAccounts)) as Hex[]
 
-    let burnAccounts: BurnAccount[] = []
+    let burnAccounts:BurnAccount[] = []
     for (const ethAccount of ethAccounts) {
         for (const chainId of selectedChainIds) {
             // select all difficulties if selectedDifficulties was not set
@@ -118,14 +118,14 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
  *
  * @returns A flat array of matching {@link BurnAccount} objects.
  */
-export function getAllBurnAccounts(privateData: PrivateWalletData, ethAccount: Address,
-    { difficulties, chainIds, deterministicAccounts = true, nonDeterministicAccounts = true }:
-        { difficulties?: bigint[], chainIds?: bigint[], deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
+export function getAllBurnAccounts(privateData: ViewKeyData,
+    { difficulties, chainIds,ethAccounts, deterministicAccounts = true, nonDeterministicAccounts = true }:
+        { difficulties?: bigint[], chainIds?: bigint[], ethAccounts?:Address[],deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
 ): BurnAccount[] {
     const difficultiesHex = difficulties !== undefined ? difficulties.map((diff) => toHex(diff, { size: 32 }), { size: 32 }) : undefined;
     const chainIdsHex = chainIds !== undefined ? chainIds.map((chainId) => toHex(chainId, { size: 32 }), { size: 32 }) : undefined;
 
-    return filterBurnAccounts(privateData.burnAccounts, difficultiesHex, chainIdsHex, [ethAccount], deterministicAccounts, nonDeterministicAccounts) 
+    return filterBurnAccounts(privateData.burnAccounts, difficultiesHex, chainIdsHex, ethAccounts, deterministicAccounts, nonDeterministicAccounts) 
 }
 
 // TODO move this into BurnViewKeyManager

@@ -2,17 +2,18 @@
 
 import type { Address, Hex, WalletClient } from "viem";
 import { getAddress, hashMessage, padHex, toHex } from "viem";
-import type { BurnAccount, PrivateWalletData, PubKeyHex, BurnAccountBase, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount } from "./types.ts"
+import type { BurnAccount, ViewKeyData, PubKeyHex, BurnAccountBase, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, DerivedBurnAccount } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, verifyPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { getDeterministicBurnAccounts } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
+import { isDerivedBurnAccount } from "./schemas.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 /**
  * A class that wraps around a viem WalletClient to enable creation of burn accounts that all share the same pubKey.
- * This class stores all newly generated burn accounts in PrivateWallet.privateWalletData.
+ * This class stores all newly generated burn accounts in PrivateWallet.viewKeyData.
  *
  * Other methods like signPrivateTransfer, proofAndSelfRelay, etc. are outside the class and only consume it,
  * since those methods won't create things we need to store or cache (like pubKey, important data).
@@ -22,7 +23,7 @@ import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
  */
 export class BurnViewKeyManager {
     readonly viemWallet: WalletClient
-    readonly privateData: PrivateWalletData;
+    readonly privateData: ViewKeyData;
 
     readonly defaults: {
         acceptedChainIds: bigint[];
@@ -34,15 +35,15 @@ export class BurnViewKeyManager {
      * @param viemWallet
      * @param powDifficulty
      * @param options - Optional configuration object.
-     * @param options.privateWalletData - Existing wallet data to import. If omitted, a fresh wallet is initialized.
+     * @param options.viewKeyData - Existing wallet data to import. If omitted, a fresh wallet is initialized.
      * @param options.viewKeySigMessage - Message used to derive the viewing key root. Defaults to {@link VIEWING_KEY_SIG_MESSAGE}.
      * @param options.acceptedChainIds - List of accepted chain IDs. Defaults to `[1n]`.
      * @param options.chainId - Default chain ID for operations. Inferred from `acceptedChainIds` if not provided.
      */
     constructor(
         viemWallet: WalletClient, powDifficulty: bigint,
-        { privateWalletData, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId, ethAddress }:
-            { privateWalletData?: PrivateWalletData, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint, ethAddress?:Address } = {}
+        { viewKeyData, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId, ethAddress }:
+            { viewKeyData?: ViewKeyData, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint, ethAddress?:Address } = {}
     ) {
         this.viemWallet = viemWallet
         ethAddress ??= viemWallet.account?.address ? viemWallet.account?.address : "0x0000000000000000000000000000000000000000" as Address 
@@ -67,8 +68,8 @@ export class BurnViewKeyManager {
             powDifficulty: powDifficulty
         }
 
-        // init this.privateWalletData
-        if (privateWalletData === undefined) {
+        // init this.viewKeyData
+        if (viewKeyData === undefined) {
             // set default
             this.privateData = {
                 viewKeySigMessage: viewKeySigMessage,
@@ -76,10 +77,10 @@ export class BurnViewKeyManager {
             }
         } else {
             // check input
-            if (viewKeySigMessage !== privateWalletData.viewKeySigMessage) {
+            if (viewKeySigMessage !== viewKeyData.viewKeySigMessage) {
                 throw new Error(`cant change viewKey message of a imported account`)
             }
-            this.privateData = structuredClone(privateWalletData)
+            this.privateData = structuredClone(viewKeyData)
         }
         this.#createBurnAccountsKeys({ chainId: chainId, difficulty: powDifficulty, ethAccount: ethAddress})
     }
@@ -123,7 +124,7 @@ export class BurnViewKeyManager {
         const difficultyPadded = padHex(burnAccount.difficulty, { size: 32 })
         const chainIdPadded = padHex(burnAccount.chainId, { size: 32 })
         this.#createBurnAccountsKeysHex({ chainIdHex: chainIdPadded, difficultyHex: difficultyPadded, ethAccount: burnAccount.ethAccount })
-        if ("viewingKeyIndex" in burnAccount) {
+         if (isDerivedBurnAccount(burnAccount)) {
             this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[chainIdPadded][difficultyPadded].derivedBurnAccounts[burnAccount.viewingKeyIndex] = burnAccount
         } else {
             this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[chainIdPadded][difficultyPadded].unknownBurnAccounts.push(burnAccount)

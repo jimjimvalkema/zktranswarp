@@ -216,8 +216,9 @@ export async function syncBurnAccount(
  * @returns 
  * @TODO make ethAccount optional also do that for getAllBurnAccounts (so they both just do all)
  */
-export async function syncMultipleBurnAccounts({ wormholeToken, archiveNode, BurnViewKeyManager, burnAddressesToSync,ethAccount }: { ethAccount:Address,archiveNode: PublicClient, wormholeToken: WormholeToken, BurnViewKeyManager: BurnViewKeyManager, burnAddressesToSync?: Address[] }) {
-    const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount)
+export async function syncMultipleBurnAccounts(archiveNode: PublicClient, wormholeToken: WormholeToken, BurnViewKeyManager: BurnViewKeyManager,
+    {  burnAddressesToSync, ethAccounts }: { ethAccounts?:Address[], burnAddressesToSync?: Address[] }) {
+    const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData,{ethAccounts})
     burnAddressesToSync ??= allBurnAccounts.map((v) => v.burnAddress)
     const syncedBurnAccounts = await Promise.all(allBurnAccounts.map((burnAccount) => {
         if (burnAddressesToSync.includes(burnAccount.burnAddress)) {

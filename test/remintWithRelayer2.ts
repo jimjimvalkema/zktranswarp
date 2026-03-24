@@ -13,7 +13,7 @@ import { createRelayerInputs, getBackend } from "../src/proving.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
 import { proofAndSelfRelay, relayTx, safeBurn, superSafeBurn } from "../src/transact.ts";
 import { getContract, padHex, parseEventLogs, parseUnits, toHex, type Hash, type Hex } from "viem";
-import type { BurnAccount, FeeData, PrivateWalletData } from "../src/types.ts";
+import type { BurnAccount, FeeData, ViewKeyData } from "../src/types.ts";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";

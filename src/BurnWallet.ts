@@ -2,7 +2,7 @@
 
 import type { Address, Hex, WalletClient } from "viem";
 import { hashMessage, padHex, toHex } from "viem";
-import type { BurnAccount, PrivateWalletData, PreSyncedTreeStringifyable, PreSyncedTree } from "./types.ts"
+import type { BurnAccount, ViewKeyData, PreSyncedTreeStringifyable, PreSyncedTree } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
@@ -29,8 +29,8 @@ export class BurnWallet {
      */
     constructor(
         viemWallet: WalletClient, powDifficulty: bigint,
-        { merkleTree,privateWalletData, walletDataImport, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId }:
-            { privateWalletData?:PrivateWalletData, merkleTree?:PreSyncedTree, walletDataImport?: string, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint } = {}
+        { merkleTree, walletDataImport, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId }:
+            {  merkleTree?:PreSyncedTree, walletDataImport?: string, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint } = {}
     ) { 
 
         const walletImportParsed = walletDataImport ? JSON.parse(walletDataImport) : {}
@@ -41,7 +41,7 @@ export class BurnWallet {
         this.burnViewKeyManager = new BurnViewKeyManager(
             viemWallet, powDifficulty,
             { 
-                privateWalletData: "privateData" in walletImportParsed  ? walletImportParsed.privateData : undefined , 
+                viewKeyData: "privateData" in walletImportParsed  ? walletImportParsed.privateData : undefined , 
                 viewKeySigMessage, acceptedChainIds, chainId 
             }
         )
@@ -138,7 +138,7 @@ export class BurnWallet {
         throw new Error("TODO IMPLEMENT")
     }
 
-    exportWallet() {
+    exportWalletFull() {
         return JSON.stringify({privateData:this.burnViewKeyManager.privateData, merkleTree:this.merkleTree })
     }
 }

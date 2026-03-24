@@ -93,7 +93,7 @@ describe("Token", async function () {
             const __dirname = dirname(fileURLToPath(import.meta.url));
             const path =  join(__dirname, '../test/data/privateDataAlice.json')
             console.log({path})
-            await writeFile(path, alicePrivate.exportWallet(), 'utf-8');
+            await writeFile(path, alicePrivate.exportWalletFull(), 'utf-8');
             
         })
     })

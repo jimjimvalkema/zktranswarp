@@ -3,7 +3,7 @@ import type { Address, Hex, WalletClient } from 'viem'
 import { sepolia } from 'viem/chains'
 import 'viem/window';
 import { BurnViewKeyManager, getDeterministicBurnAccounts } from '../src/BurnWallet.ts';
-import type { WormholeToken, SelfRelayInputs, BurnAccount, SyncedBurnAccountNonDet, PrivateWalletData, PreSyncedTree, PreSyncedTreeStringifyable, SyncedBurnAccountDet } from '../src/types.js';
+import type { WormholeToken, SelfRelayInputs, BurnAccount, SyncedBurnAccountNonDet, ViewKeyData, PreSyncedTree, PreSyncedTreeStringifyable, SyncedBurnAccountDet } from '../src/types.js';
 import { createRelayerInputs, selfRelayTx, superSafeBurn } from '../src/transact.js';
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json'    with {"type": "json"};
 import sepoliaDeployments from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
@@ -209,11 +209,11 @@ function savePrivateWalletData(privateWallet: BurnViewKeyManager) {
     localStorage.setItem(privateWalletLsKey(privateWallet.privateData.ethAccount), JSON.stringify(privateWallet.privateData))
 }
 
-function loadPrivateWalletData(ethAccount: Address): PrivateWalletData | null {
+function loadPrivateWalletData(ethAccount: Address): ViewKeyData | null {
     const raw = localStorage.getItem(privateWalletLsKey(ethAccount))
     if (!raw) return null
     try {
-        const data = JSON.parse(raw) as PrivateWalletData
+        const data = JSON.parse(raw) as ViewKeyData
         if (data.ethAccount?.toLowerCase() !== ethAccount.toLowerCase()) return null
         return data
     } catch {
@@ -541,7 +541,7 @@ async function connectPrivateWallet() {
     let privateWallet: BurnViewKeyManager
     if (storedData) {
         logUi("restoring private wallet from local storage...", true)
-        privateWallet = new BurnViewKeyManager(publicWallet, POW_DIFFICULTY, { privateWalletData: storedData, acceptedChainIds: [chainId] })
+        privateWallet = new BurnViewKeyManager(publicWallet, POW_DIFFICULTY, { viewKeyData: storedData, acceptedChainIds: [chainId] })
     } else {
         privateWallet = new BurnViewKeyManager(publicWallet, POW_DIFFICULTY, { acceptedChainIds: [chainId] })
         logUi("creating private wallet...\n please sign the message in your wallet", true)

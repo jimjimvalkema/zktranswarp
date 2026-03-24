@@ -31,21 +31,18 @@
     "noir:reMint2:cp-verifier": "cp circuits/reMint2/target/Verifier.sol contracts/reMint2Verifier.sol;",
     "noir:reMint2:rename-verifier": "yarn tsx scripts/renameVerifier.ts --newName reMint2Verifier --file contracts/reMint2Verifier.sol",
     "noir:reMint2": "yarn noir:reMint2:compile; yarn noir:reMint2:vk; yarn noir:reMint2:verifier; yarn noir:reMint2:cp-verifier; yarn noir:reMint2:rename-verifier;",
-    
     "noir:reMint32:compile": "cd circuits/reMint32; nargo compile;",
     "noir:reMint32:vk": "cd circuits/reMint32; bb write_vk -b ./target/reMint32.json -o ./target --oracle_hash keccak;",
     "noir:reMint32:verifier": "cd circuits/reMint32; bb write_solidity_verifier -k ./target/vk -o ./target/Verifier.sol;",
     "noir:reMint32:cp-verifier": "cp circuits/reMint32/target/Verifier.sol contracts/reMint32Verifier.sol;",
     "noir:reMint32:rename-verifier": "yarn tsx scripts/renameVerifier.ts --newName reMint32Verifier --file contracts/reMint32Verifier.sol",
     "noir:reMint32": "yarn noir:reMint32:compile; yarn noir:reMint32:vk; yarn noir:reMint32:verifier; yarn noir:reMint32:cp-verifier; yarn noir:reMint32:rename-verifier;",
-
     "noir:reMint100:compile": "cd circuits/reMint100; nargo compile;",
     "noir:reMint100:vk": "cd circuits/reMint100; bb write_vk -b ./target/reMint100.json -o ./target --oracle_hash keccak;",
     "noir:reMint100:verifier": "cd circuits/reMint100; bb write_solidity_verifier -k ./target/vk -o ./target/Verifier.sol;",
     "noir:reMint100:cp-verifier": "cp circuits/reMint100/target/Verifier.sol contracts/reMint100Verifier.sol;",
     "noir:reMint100:rename-verifier": "yarn tsx scripts/renameVerifier.ts --newName reMint100Verifier --file contracts/reMint100Verifier.sol",
     "noir:reMint100": "yarn noir:reMint100:compile; yarn noir:reMint100:vk; yarn noir:reMint100:verifier; yarn noir:reMint100:cp-verifier; yarn noir:reMint100:rename-verifier;",
-
     "noir": "yarn noir:reMint2; yarn noir:reMint32; yarn noir:reMint100",
     "website": "cd website; yarn vite"
   },
@@ -71,7 +68,8 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "vite-plugin-wasm": "^3.5.0",
-    "zk-kit-lean-imt-custom-hash": "2.1.1"
+    "zk-kit-lean-imt-custom-hash": "2.1.1",
+    "zod": "^4.3.6"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
