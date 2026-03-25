@@ -43,7 +43,11 @@ export const BurnAccountSyncDataSchema = z.object({
 
     // syncing stopped at this block (includes that block)
     lastSyncedBlock: HexSchema,
-    // lowest possible block where a root can be used to proof
+
+    // TODO maybe remove minProvableBlock, technically it's the last block accountNonce got update or the last tx the burn account received. Which ever is lowest. But then i need to scan for that tx when it received something. Not worth the rpc calls
+    // SyncBurnAccount uses the "Nothing happened rule" which is not totally accurate. It's never too low, but usually too high. Maybe not minProvableBlock, but knownLowSafeProvableBlock. You can look for lower if you want
+    
+    // a know lower possible block where a root can be used to proof
     minProvableBlock: HexSchema,
 });
 
@@ -150,12 +154,14 @@ export type UnknownBurnAccountImportable = WithReadonlyBase<z.infer<typeof Unkno
 export type SyncedUnknownBurnAccount = WithReadonlyBase<z.infer<typeof SyncedUnknownBurnAccountSchema>>;
 export type UnknownBurnAccount = WithReadonlyBase<z.infer<typeof UnknownBurnAccountSchema>>;
 
-export type RecoverableBurnAccount = DerivedBurnAccountRecoverable | UnknownBurnAccountRecoverable;
-export type AnyBurnAccount = BurnAccount | BurnAccountImportable | RecoverableBurnAccount;
 export type BurnAccountImportable = WithReadonlyBase<z.infer<typeof BurnAccountImportableSchema>>;
 export type BurnAccount = WithReadonlyBase<z.infer<typeof BurnAccountSchema>>;
 export type UnsyncedBurnAccount = WithReadonlyBase<z.infer<typeof UnsyncedBurnAccountSchema>>;
 export type SyncedBurnAccount = WithReadonlyBase<z.infer<typeof SyncedBurnAccountSchema>>;
+
+export type RecoverableBurnAccount = DerivedBurnAccountRecoverable | UnknownBurnAccountRecoverable;
+export type AnyBurnAccount = BurnAccount | BurnAccountImportable | RecoverableBurnAccount;
+
 
 // --- type guards -------------------------------------------------------------
 
@@ -181,14 +187,14 @@ export type BurnAccountType = {
 };
 
 export type ParsedBurnAccount =
-    | { type: { derivation: "Derived"; state: "Synced"      }; account: SyncedDerivedBurnAccount }
-    | { type: { derivation: "Derived"; state: "Unsynced"    }; account: DerivedBurnAccount }
-    | { type: { derivation: "Derived"; state: "Importable"  }; account: DerivedBurnAccountImportable }
-    | { type: { derivation: "Derived"; state: "Recoverable" }; account: DerivedBurnAccountRecoverable }
-    | { type: { derivation: "Unknown"; state: "Synced"      }; account: SyncedUnknownBurnAccount }
-    | { type: { derivation: "Unknown"; state: "Unsynced"    }; account: UnknownBurnAccount }
-    | { type: { derivation: "Unknown"; state: "Importable"  }; account: UnknownBurnAccountImportable }
-    | { type: { derivation: "Unknown"; state: "Recoverable" }; account: UnknownBurnAccountRecoverable };
+    | { derivation: "Derived";  state: "Synced";      account: SyncedDerivedBurnAccount }
+    | { derivation: "Derived";  state: "Unsynced";    account: DerivedBurnAccount }
+    | { derivation: "Derived";  state: "Importable";  account: DerivedBurnAccountImportable }
+    | { derivation: "Derived";  state: "Recoverable"; account: DerivedBurnAccountRecoverable }
+    | { derivation: "Unknown";  state: "Synced";      account: SyncedUnknownBurnAccount }
+    | { derivation: "Unknown";  state: "Unsynced";    account: UnknownBurnAccount }
+    | { derivation: "Unknown";  state: "Importable";  account: UnknownBurnAccountImportable }
+    | { derivation: "Unknown";  state: "Recoverable"; account: UnknownBurnAccountRecoverable };
 
 // --- parse -------------------------------------------------------------------
 
@@ -204,15 +210,15 @@ export function parseBurnAccount(item: unknown): AnyBurnAccount {
  */
 export function identifyBurnAccount(account: AnyBurnAccount): ParsedBurnAccount {
     if ("viewKeySigMessage" in account) {
-        if (SyncedDerivedBurnAccountSchema.safeParse(account).success)      return { type: { derivation: "Derived", state: "Synced"      }, account: SyncedDerivedBurnAccountSchema.parse(account) };
-        if (DerivedBurnAccountImportableSchema.safeParse(account).success)  return { type: { derivation: "Derived", state: "Importable"  }, account: DerivedBurnAccountImportableSchema.parse(account) };
-        if (DerivedBurnAccountRecoverableSchema.safeParse(account).success) return { type: { derivation: "Derived", state: "Recoverable" }, account: DerivedBurnAccountRecoverableSchema.parse(account) };
-        return                                                                      { type: { derivation: "Derived", state: "Unsynced"    }, account: DerivedBurnAccountSchema.parse(account) };
+        if (SyncedDerivedBurnAccountSchema.safeParse(account).success)      return { derivation: "Derived", state: "Synced",      account: SyncedDerivedBurnAccountSchema.parse(account) };
+        if (DerivedBurnAccountImportableSchema.safeParse(account).success)  return { derivation: "Derived", state: "Importable",  account: DerivedBurnAccountImportableSchema.parse(account) };
+        if (DerivedBurnAccountRecoverableSchema.safeParse(account).success) return { derivation: "Derived", state: "Recoverable", account: DerivedBurnAccountRecoverableSchema.parse(account) };
+        return                                                                     { derivation: "Derived", state: "Unsynced",    account: DerivedBurnAccountSchema.parse(account) };
     } else {
-        if (SyncedUnknownBurnAccountSchema.safeParse(account).success)      return { type: { derivation: "Unknown", state: "Synced"      }, account: SyncedUnknownBurnAccountSchema.parse(account) };
-        if (UnknownBurnAccountImportableSchema.safeParse(account).success)  return { type: { derivation: "Unknown", state: "Importable"  }, account: UnknownBurnAccountImportableSchema.parse(account) };
-        if (UnknownBurnAccountRecoverableSchema.safeParse(account).success) return { type: { derivation: "Unknown", state: "Recoverable" }, account: UnknownBurnAccountRecoverableSchema.parse(account) };
-        return                                                                      { type: { derivation: "Unknown", state: "Unsynced"    }, account: UnknownBurnAccountSchema.parse(account) };
+        if (SyncedUnknownBurnAccountSchema.safeParse(account).success)      return { derivation: "Unknown", state: "Synced",      account: SyncedUnknownBurnAccountSchema.parse(account) };
+        if (UnknownBurnAccountImportableSchema.safeParse(account).success)  return { derivation: "Unknown", state: "Importable",  account: UnknownBurnAccountImportableSchema.parse(account) };
+        if (UnknownBurnAccountRecoverableSchema.safeParse(account).success) return { derivation: "Unknown", state: "Recoverable", account: UnknownBurnAccountRecoverableSchema.parse(account) };
+        return                                                                     { derivation: "Unknown", state: "Unsynced",    account: UnknownBurnAccountSchema.parse(account) };
     }
 }
 
@@ -242,19 +248,19 @@ export function parseBurnAccountArray(json: string): ParsedBurnAccounts {
     };
 
     parsed.forEach((item) => {
-        const { type, account } = identifyBurnAccount(parseBurnAccount(item));
+        const idAccount = identifyBurnAccount(parseBurnAccount(item));
 
-        if (type.derivation === "Derived") {
-            if (type.state === "Unsynced" || type.state === "Synced") {
-                result.full.derived.push(account as DerivedBurnAccount);
+        if (idAccount.derivation === "Derived") {
+            if (idAccount.state === "Unsynced" || idAccount.state === "Synced") {
+                result.full.derived.push(idAccount.account as DerivedBurnAccount);
             } else {
-                result.imported.derived.push(account as DerivedBurnAccountImportable | DerivedBurnAccountRecoverable);
+                result.imported.derived.push(idAccount.account as DerivedBurnAccountImportable | DerivedBurnAccountRecoverable);
             }
         } else {
-            if (type.state === "Unsynced" || type.state === "Synced") {
-                result.full.unknown.push(account as UnknownBurnAccount);
+            if (idAccount.state === "Unsynced" || idAccount.state === "Synced") {
+                result.full.unknown.push(idAccount.account as UnknownBurnAccount);
             } else {
-                result.imported.unknown.push(account as UnknownBurnAccountImportable | UnknownBurnAccountRecoverable);
+                result.imported.unknown.push(idAccount.account as UnknownBurnAccountImportable | UnknownBurnAccountRecoverable);
             }
         }
     });
@@ -303,7 +309,8 @@ export const BurnAccountStorageSchema = keyValidatedRecord(
                 Hex32Schema,
                 z.object({
                     derivedBurnAccounts: z.array(DerivedBurnAccountSchema),
-                    unknownBurnAccounts: z.array(UnknownBurnAccountSchema),
+                    // indexed by burnAddress — O(1) lookup instead of O(n) array scan
+                    unknownBurnAccounts: keyValidatedRecord(AddressSchema, UnknownBurnAccountSchema),
                 })
             )
         ),

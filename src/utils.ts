@@ -92,7 +92,7 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
                     burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].derivedBurnAccounts]
                 }
                 if (nonDetBurnAccounts) {
-                    burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts]
+                    burnAccounts = [...burnAccounts, ...Object.values(burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts)]
 
                 }
             }

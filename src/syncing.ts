@@ -134,19 +134,18 @@ export async function decryptTotalSpend({ viewingKey, totalSpentEncrypted }: { v
 
 //you can event scan or just iter over the nullifier mapping!
 // TODO add actual balance
-export async function syncBurnAccount(
-    { wormholeToken, burnAccount, archiveNode }
-        : { wormholeToken: WormholeToken | WormholeTokenTest, burnAccount: BurnAccount, archiveNode: PublicClient }
+export async function syncBurnAccount(wormholeToken: WormholeToken | WormholeTokenTest, burnAccount: BurnAccount, archiveNode: PublicClient, { maxNonce }: { maxNonce?: bigint } = {}
 ): Promise<SyncedBurnAccount> {
+    const blockNumberBeforeSync = await archiveNode.getBlockNumber()
     const viewingKey = BigInt(burnAccount.viewingKey)
     const initialAccountNonce = BigInt(burnAccount.accountNonce ?? 0n)
     let accountNonce = initialAccountNonce
     //accountNonce = accountNonce === 0n ? 0n : accountNonce - 1n
     let totalSpent = BigInt(burnAccount.totalSpent ?? 0n)
-    let isNullified: boolean|null = null;
+    let isNullified: boolean | null = null;
     let lastSpendBlockNum: bigint | null = null
     let lastNullifier: bigint | null = null;
-    while (isNullified || isNullified === null) {
+    while (isNullified || isNullified === null && (maxNonce === undefined || accountNonce < maxNonce)) {
         const nullifier = hashNullifier({ accountNonce: accountNonce, viewingKey: viewingKey })
         const nullifiedAtBlock = await wormholeToken.read.nullifiers([nullifier])
         // if not nullified
@@ -154,15 +153,15 @@ export async function syncBurnAccount(
             // we are at the first iteration and accountNonce is not at 0. 
             // this means the account was previously synced, and didn't need another sync
             const wasPreviouslySynced = isNullified === null && accountNonce !== 0n;
-            if(wasPreviouslySynced) {
-                const prevNullifier = hashNullifier({ accountNonce: accountNonce-1n, viewingKey: viewingKey })
+            if (wasPreviouslySynced) {
+                const prevNullifier = hashNullifier({ accountNonce: accountNonce - 1n, viewingKey: viewingKey })
                 // another rpc call but trust me i got stuck on this stupid ah bug for hours and it took claude a while to find it as well 
                 const prevNullifiedAtBlock = await wormholeToken.read.nullifiers([prevNullifier])
-                if(prevNullifiedAtBlock === 0n) {
+                if (prevNullifiedAtBlock === 0n) {
                     throw new Error(`
                         provided burnAccount has an invalid accountNonce. Account nonce was set to a non 0 number but it's previous nonce was not nullified
-                        previous nonce expected to be nullified: ${toHex(prevNullifier,{size:32})} (accountNonce: ${accountNonce-1n})
-                        current nonce nullifier: ${toHex(nullifier,{size:32})} (accountNonce: ${accountNonce})
+                        previous nonce expected to be nullified: ${toHex(prevNullifier, { size: 32 })} (accountNonce: ${accountNonce - 1n})
+                        current nonce nullifier: ${toHex(nullifier, { size: 32 })} (accountNonce: ${accountNonce})
                         
                         burnAccount: 
                         ${JSON.stringify(burnAccount)}
@@ -198,36 +197,43 @@ export async function syncBurnAccount(
     }
 
     const totalReceived = await wormholeToken.read.balanceOf([burnAccount.burnAddress]);
+    const nothingHappened = burnAccount.totalBurned !== undefined && totalReceived === BigInt(burnAccount.totalBurned) && initialAccountNonce === accountNonce
     const syncedBurnAccount = burnAccount as SyncedBurnAccount
     syncedBurnAccount.totalSpent = toHex(totalSpent);
     syncedBurnAccount.accountNonce = toHex(accountNonce);
     syncedBurnAccount.totalBurned = toHex(totalReceived)
-   
+
     syncedBurnAccount.spendableBalance = toHex(totalReceived - totalSpent)
+
+    syncedBurnAccount.lastSyncedBlock = toHex(blockNumberBeforeSync)
+    // TODO maybe remove minProvableBlock, technically it's the last block accountNonce got update or the last tx the burn account received. Which ever is lowest. But then i need to scan for that tx when it received something. Not worth the rpc calls
+    // Nothing happened rule also works, but not totally accurate. It's never too low, but usually too high. Maybe not minProvableBlock, but knownLowSafeProvableBlock. You can look for lower if you want
+    syncedBurnAccount.minProvableBlock = nothingHappened && burnAccount.lastSyncedBlock !== undefined ? burnAccount.lastSyncedBlock : syncedBurnAccount.lastSyncedBlock 
     return syncedBurnAccount
 }
 
 /**
  * defaults to syncing all burn accounts
  * @notice sync concurrently all accounts, this might overwhelm rpcs
+ * @notice When using UnknownBurnAccount this becomes O(n × m). It uses `BurnViewKeyManager.updateBurnAccount` which will loop over all unknown burnAccounts to find which one to update
+ * This is not an issue in most cases () but when using singe use burn accounts (for relayer refunds for example), or as utxo's, pls use the DerivedBurnAccount type.
  * TODO use p-limit
  * TODO make walletObject that has syncBurnAccount in it so importBurnAccount is not used since it will do checks in the future (which are redundant rn)
  * @param param0 
  * @returns 
- * @TODO make ethAccount optional also do that for getAllBurnAccounts (so they both just do all)
  */
 export async function syncMultipleBurnAccounts(archiveNode: PublicClient, wormholeToken: WormholeToken, BurnViewKeyManager: BurnViewKeyManager,
-    {  burnAddressesToSync, ethAccounts }: { ethAccounts?:Address[], burnAddressesToSync?: Address[] }) {
-    const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData,{ethAccounts})
+    { burnAddressesToSync, ethAccounts }: { ethAccounts?: Address[], burnAddressesToSync?: Address[] }) {
+    const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts })
     burnAddressesToSync ??= allBurnAccounts.map((v) => v.burnAddress)
     const syncedBurnAccounts = await Promise.all(allBurnAccounts.map((burnAccount) => {
         if (burnAddressesToSync.includes(burnAccount.burnAddress)) {
-            return syncBurnAccount({ burnAccount, wormholeToken, archiveNode })
+            return syncBurnAccount(wormholeToken, burnAccount, archiveNode )
         } else {
             return burnAccount
         }
     }))
-    await Promise.all(syncedBurnAccounts.map((burnAccount)=>BurnViewKeyManager.importBurnAccount(burnAccount)))
+    await Promise.all(syncedBurnAccounts.map((burnAccount) => BurnViewKeyManager.updateBurnAccount(burnAccount)))
     return BurnViewKeyManager
 }
 
