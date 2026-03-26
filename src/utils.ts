@@ -1,8 +1,9 @@
 import { bytesToHex, hexToBytes, padHex, toHex, type Address, type Hex } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
-import type { BurnAccount, BurnAccountImportable, BurnAccountStorage, ViewKeyData, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken } from "./types.ts";
+import type { BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken, AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable, DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, RecoverableBurnAccount, BurnAccountStorage, FullViewKeyData, UnknownBurnAccount } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS } from "./constants.ts";
+import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema } from "./schemas.ts";
 
 export function padWithRandomHex({ arr, len, hexSize, dir }: { arr: Hex[], len: number, hexSize: number, dir: 'left' | 'right' }): Hex[] {
     const padding = Array.from({ length: len - arr.length }, () =>
@@ -92,7 +93,7 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
                     burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].derivedBurnAccounts]
                 }
                 if (nonDetBurnAccounts) {
-                    burnAccounts = [...burnAccounts, ...Object.values(burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts)]
+                    burnAccounts = [...burnAccounts, ...Object.values(burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts) ]//as UnknownBurnAccount[]]
 
                 }
             }
@@ -118,7 +119,7 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
  *
  * @returns A flat array of matching {@link BurnAccount} objects.
  */
-export function getAllBurnAccounts(privateData: ViewKeyData,
+export function getAllBurnAccounts(privateData: FullViewKeyData,
     { difficulties, chainIds,ethAccounts, deterministicAccounts = true, nonDeterministicAccounts = true }:
         { difficulties?: bigint[], chainIds?: bigint[], ethAccounts?:Address[],deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
 ): BurnAccount[] {
@@ -153,4 +154,18 @@ export async function getCircuitSizesFromContract(wormholeToken: WormholeToken |
 
 export function getCircuitSize(amountBurnAddresses: number, circuitSizes: number[]) {
     return circuitSizes.find((v) => v >= amountBurnAddresses) as number
+}
+
+export function toImportableBurnAccount(account: SyncedBurnAccount): BurnAccountImportable {
+    if (isDerivedBurnAccount(account)) {
+        return DerivedBurnAccountImportableSchema.parse(account) as DerivedBurnAccountImportable;
+    }
+    return UnknownBurnAccountImportableSchema.parse(account) as UnknownBurnAccountImportable;
+}
+
+export function toRecoverableBurnAccount(account: AnyBurnAccount): RecoverableBurnAccount {
+    if (isDerivedBurnAccount(account)) {
+        return DerivedBurnAccountRecoverableSchema.parse(account) as DerivedBurnAccountRecoverable;
+    }
+    return UnknownBurnAccountRecoverableSchema.parse(account) as UnknownBurnAccountRecoverable;
 }

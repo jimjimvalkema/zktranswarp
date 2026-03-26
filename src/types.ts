@@ -3,7 +3,7 @@ import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.so
 import type { InputMap } from "@noir-lang/noir_js";
 import type { UltraHonkBackend } from "@aztec/bb.js";
 import { LeanIMT } from "@zk-kit/lean-imt";
-import type { DerivedBurnAccount, SyncedBurnAccount, UnknownBurnAccount, BurnAccountStorage } from "./schemas.ts";
+import type { DerivedBurnAccount, SyncedBurnAccount, UnknownBurnAccount, BurnAccountRecoverable, BurnAccountImportable, PubKeyHex } from "./schemas.ts";
 
 export type WormholeToken = GetContractReturnType<WormholeToken$Type["abi"], Required<{ public?: PublicClient; wallet?: WalletClient; }>>
 
@@ -131,25 +131,19 @@ export type {
     BurnAccount,
     UnsyncedBurnAccount,
     SyncedBurnAccount,
-    RecoverableBurnAccount,
+    BurnAccountRecoverable,
     AnyBurnAccount,
     PubKeyHex,
-    BurnAccountStorage,
     BurnAccountType,
     BurnAccountDerivation,
     BurnAccountState,
     ParsedBurnAccount,
     ParsedBurnAccounts,
+    BurnAccountStorage,
+    FullViewKeyData,
+    ExportedViewKeyData,
 } from "./schemas.ts";
 
-
-export interface ViewKeyData {
-    readonly viewKeySigMessage: string,
-    detViewKeyRoot?: Hex,
-
-    // ethAccountAddress(spending key)=>detBurnAccount=>chainId=>powDifficulty=>viewKeyIndex=>BurnAccount
-    burnAccounts: BurnAccountStorage
-}
 export interface SignatureHashPreImg {
     recipientAddress: Address,
     amount: Hex,

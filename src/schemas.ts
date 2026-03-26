@@ -154,13 +154,13 @@ export type UnknownBurnAccountImportable = WithReadonlyBase<z.infer<typeof Unkno
 export type SyncedUnknownBurnAccount = WithReadonlyBase<z.infer<typeof SyncedUnknownBurnAccountSchema>>;
 export type UnknownBurnAccount = WithReadonlyBase<z.infer<typeof UnknownBurnAccountSchema>>;
 
-export type BurnAccountImportable = WithReadonlyBase<z.infer<typeof BurnAccountImportableSchema>>;
 export type BurnAccount = WithReadonlyBase<z.infer<typeof BurnAccountSchema>>;
 export type UnsyncedBurnAccount = WithReadonlyBase<z.infer<typeof UnsyncedBurnAccountSchema>>;
 export type SyncedBurnAccount = WithReadonlyBase<z.infer<typeof SyncedBurnAccountSchema>>;
 
-export type RecoverableBurnAccount = DerivedBurnAccountRecoverable | UnknownBurnAccountRecoverable;
-export type AnyBurnAccount = BurnAccount | BurnAccountImportable | RecoverableBurnAccount;
+export type BurnAccountImportable = DerivedBurnAccountImportable | UnknownBurnAccountImportable;
+export type BurnAccountRecoverable = DerivedBurnAccountRecoverable | UnknownBurnAccountRecoverable;
+export type AnyBurnAccount = BurnAccount | BurnAccountImportable | BurnAccountRecoverable;
 
 
 // --- type guards -------------------------------------------------------------
@@ -276,7 +276,7 @@ const Hex32Schema = z.custom<import("viem").Hex>(
 );
 
 // Zod doesn't validate record keys natively — this helper adds superRefine to do so.
-function keyValidatedRecord<V>(keySchema: z.ZodTypeAny, valueSchema: z.ZodType<V>) {
+function keyValidatedRecord<S extends z.ZodTypeAny>(keySchema: z.ZodTypeAny, valueSchema: S) {
     return z.record(z.string(), valueSchema).superRefine((obj, ctx) => {
         for (const key of Object.keys(obj)) {
             const result = keySchema.safeParse(key);
@@ -288,7 +288,7 @@ function keyValidatedRecord<V>(keySchema: z.ZodTypeAny, valueSchema: z.ZodType<V
                 });
             }
         }
-    });
+    }) as z.ZodType<Record<string, z.infer<S>>>;
 }
 
 export const PubKeyHexSchema = z.object({
@@ -296,26 +296,50 @@ export const PubKeyHexSchema = z.object({
     y: HexSchema,
 });
 
-export const BurnAccountStorageSchema = keyValidatedRecord(
-    AddressSchema,
-    z.object({
-        pubKey: PubKeyHexSchema.optional(),
-        detViewKeyCounter: z.number().int().nonnegative(),
-        /** stores mapping of chainId=>powDifficulty=>{derivedBurnAccounts, unknownBurnAccounts}
-         *  keys are 32-byte padded hex: toHex(chainId,{size:32}) and toHex(powDifficulty,{size:32}) */
-        burnAccounts: keyValidatedRecord(
-            Hex32Schema,
-            keyValidatedRecord(
-                Hex32Schema,
-                z.object({
-                    derivedBurnAccounts: z.array(DerivedBurnAccountSchema),
-                    // indexed by burnAddress — O(1) lookup instead of O(n) array scan
-                    unknownBurnAccounts: keyValidatedRecord(AddressSchema, UnknownBurnAccountSchema),
-                })
-            )
-        ),
-    })
-);
-
 export type PubKeyHex = z.infer<typeof PubKeyHexSchema>;
+
+
+const ViewKeyDataSchema = <T extends z.ZodTypeAny>(burnAccountSchema: T) => z.object({
+    viewKeySigMessage: z.string(),
+    detViewKeyRoot: HexSchema.optional(),
+    burnAccounts: keyValidatedRecord(
+        AddressSchema,
+        z.object({
+            pubKey: PubKeyHexSchema.optional(),
+            detViewKeyCounter: z.number().int().nonnegative(),
+            burnAccounts: keyValidatedRecord(
+                Hex32Schema,
+                keyValidatedRecord(
+                    Hex32Schema,
+                    z.object({
+                        derivedBurnAccounts: z.array(burnAccountSchema),
+                        unknownBurnAccounts: keyValidatedRecord(AddressSchema, burnAccountSchema),
+                    })
+                )
+            ),
+        })
+    ),
+});
+
+// concrete schemas
+export const FullViewKeyDataSchema = ViewKeyDataSchema(BurnAccountSchema);
+export const ExportedViewKeyDataSchema = ViewKeyDataSchema(BurnAccountImportableSchema);
+export const ExportedViewKeyDataParanoidSchema = ViewKeyDataSchema(z.union([DerivedBurnAccountRecoverableSchema, UnknownBurnAccountRecoverableSchema]));
+
+// inferred types
+export type FullViewKeyData = z.infer<typeof FullViewKeyDataSchema>;
+
+// manually defined using WithReadonlyBase-wrapped types to avoid structural mismatch with Zod inference
+export type ExportedViewKeyData<T = BurnAccountImportable> = Omit<FullViewKeyData, 'burnAccounts'> & {
+    burnAccounts: Record<import("viem").Address, {
+        pubKey?: PubKeyHex;
+        detViewKeyCounter: number;
+        burnAccounts: Record<import("viem").Hex, Record<import("viem").Hex, {
+            derivedBurnAccounts: T[];
+            unknownBurnAccounts: Record<import("viem").Address, T>;
+        }>>;
+    }>;
+};
+
+export const BurnAccountStorageSchema = FullViewKeyDataSchema.shape.burnAccounts;
 export type BurnAccountStorage = z.infer<typeof BurnAccountStorageSchema>;

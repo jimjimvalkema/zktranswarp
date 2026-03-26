@@ -2,13 +2,13 @@
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { getAddress, hashMessage, padHex, toHex } from "viem";
-import type { BurnAccount, ViewKeyData, PubKeyHex, BurnAccountBase, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, DerivedBurnAccount, AnyBurnAccount, RecoverableBurnAccount, DerivedBurnAccountRecoverable, WormholeToken } from "./types.ts"
+import type { BurnAccount, PubKeyHex, BurnAccountBase, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, DerivedBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, WormholeToken, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, verifyPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
-import { getDeterministicBurnAccounts } from "./utils.ts";
+import { getDeterministicBurnAccounts, toImportableBurnAccount, toRecoverableBurnAccount } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
-import { identifyBurnAccount, isDerivedBurnAccount } from "./schemas.ts";
+import { identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
@@ -24,7 +24,7 @@ import { syncBurnAccount } from "./syncing.ts";
  */
 export class BurnViewKeyManager {
     readonly viemWallet: WalletClient
-    readonly privateData: ViewKeyData;
+    readonly privateData: FullViewKeyData;
 
     readonly defaults: {
         acceptedChainIds: bigint[];
@@ -44,7 +44,7 @@ export class BurnViewKeyManager {
     constructor(
         viemWallet: WalletClient, powDifficulty: bigint,
         { viewKeyData, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId, ethAddress }:
-            { viewKeyData?: ViewKeyData, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint, ethAddress?: Address } = {}
+            { viewKeyData?: FullViewKeyData, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint, ethAddress?: Address } = {}
     ) {
         this.viemWallet = viemWallet
         ethAddress ??= viemWallet.account?.address ? viemWallet.account?.address : "0x0000000000000000000000000000000000000000" as Address
@@ -214,8 +214,8 @@ export class BurnViewKeyManager {
      * @throws {Error} If a provided `powNonce` fails verification.
      */
     async createBurnAccount(
-        { ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, difficulty = this.defaults.powDifficulty, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }:
-            { ethAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: bigint, difficulty?: bigint, async?: boolean, viewKeyMessage?: string } = {}
+        { spendingPubKeyX, ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, difficulty = this.defaults.powDifficulty, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }:
+            { spendingPubKeyX?: Hex, ethAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: bigint, difficulty?: bigint, async?: boolean, viewKeyMessage?: string } = {}
     ) {
         ethAccount ??= (await this.viemWallet.getAddresses())[0]
         if (viewingKeyIndex === undefined) {
@@ -230,8 +230,8 @@ export class BurnViewKeyManager {
                 return preCachedBurnAccounts[viewingKeyIndex]
             }
         }
-        const { x: spendingPubKeyX } = await this.getPubKey(ethAccount)
-
+        spendingPubKeyX ??= (await this.getPubKey(ethAccount)).x
+        //TODO check it matches ethAddress maybe? 
 
         const viewKeyRoot = BigInt(await this.getDeterministicViewKeyRoot(ethAccount, viewKeyMessage))
         //---------
@@ -240,12 +240,20 @@ export class BurnViewKeyManager {
         return burnAccount
     }
 
-    //{ ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, difficulty = this.defaults.powDifficulty, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }
+    // { ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, difficulty = this.defaults.powDifficulty, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }
+    /**
+     * forceReSign: will force recreation of spendingPubKeyX and viewing key (if the derivation is know). Will prompt the user to sign in the case rootViewingKey and/or spendingPubKeyX does not exist in storage yet
+     * @param importedBurnAccount 
+     * @param wormholeToken 
+     * @param archiveClient 
+     * @param param3 
+     */
     async importBurnAccount(importedBurnAccount: AnyBurnAccount, wormholeToken: WormholeToken, archiveClient: PublicClient,
         { forceReSign = true, forcePow = false, async = false }: { forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
     ) {
         const idBurnAccount = identifyBurnAccount(importedBurnAccount);
         let reCreatedBurnAccount: BurnAccount;
+        // recreate the full burn account as much as possible, even if keys are already provided. So we can check every key was correct later
         if (idBurnAccount.derivation === "Derived") {
             reCreatedBurnAccount = await this.createBurnAccount({
                 ethAccount: idBurnAccount.account.ethAccount,
@@ -256,8 +264,11 @@ export class BurnViewKeyManager {
                 powNonce: forcePow === false && idBurnAccount.account.powNonce ? BigInt(idBurnAccount.account.powNonce) : undefined,
                 viewingKey: forceReSign === false && idBurnAccount.account.viewingKey !== undefined ? BigInt(idBurnAccount.account.viewingKey) : undefined,
                 async: async,
+                spendingPubKeyX: forceReSign === false && idBurnAccount.account.spendingPubKeyX ? idBurnAccount.account.spendingPubKeyX : undefined
             })
         } else {
+            // viewingKey cant be recreated, so always used from importedBurnAccount. 
+            // viewingKeyIndex, viewKeyMessage, does not exist and is omitted. rest is same as above
             reCreatedBurnAccount = await this.createBurnAccount({
                 ethAccount: idBurnAccount.account.ethAccount,
                 chainId: BigInt(idBurnAccount.account.chainId),
@@ -267,6 +278,7 @@ export class BurnViewKeyManager {
                 powNonce: forcePow === false && idBurnAccount.account.powNonce ? BigInt(idBurnAccount.account.powNonce) : undefined,
                 viewingKey: BigInt(idBurnAccount.account.viewingKey),
                 async: async,
+                spendingPubKeyX: forceReSign === false && idBurnAccount.account.spendingPubKeyX ? idBurnAccount.account.spendingPubKeyX : undefined
             })
         }
 
@@ -288,6 +300,52 @@ export class BurnViewKeyManager {
             // @TODO test that!
             await syncBurnAccount(wormholeToken, reCreatedBurnAccount, archiveClient, { maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
         }
+    }
+
+    exportBurnAccounts(ethAccount: Address, chainId: Hex, difficulty: Hex, opts: { paranoidMode: true }): { derived: BurnAccountRecoverable[], unknown: BurnAccountRecoverable[] };
+    exportBurnAccounts(ethAccount: Address, chainId: Hex, difficulty: Hex, opts?: { paranoidMode?: false }): { derived: (BurnAccountRecoverable | BurnAccountImportable)[], unknown: (BurnAccountRecoverable | BurnAccountImportable)[] };
+
+    /**
+     * @param ethAccount 
+     * @param chainId 
+     * @param difficulty 
+     * @param opts.paranoidMode - forces all output to {@link BurnAccountRecoverable}, excluding accountNonce and syncBlockNumber for stronger privacy
+     */
+    exportBurnAccounts(
+        ethAccount: Address, chainId: Hex, difficulty: Hex, { paranoidMode = false } = {}
+    ): { derived: (BurnAccountRecoverable | BurnAccountImportable)[], unknown: (BurnAccountRecoverable | BurnAccountImportable)[] } {
+        const chainIdPadded = padHex(chainId, { size: 32 });
+        const difficultyPadded = padHex(difficulty, { size: 32 });
+        const derived = this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].derivedBurnAccounts.map(
+            (b) => paranoidMode === false && isSyncedBurnAccount(b) ? toImportableBurnAccount(b) : toRecoverableBurnAccount(b)
+        );
+        const unknown = Object.values(this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].unknownBurnAccounts).map(
+            (b) => paranoidMode === false && isSyncedBurnAccount(b) ? toImportableBurnAccount(b) : toRecoverableBurnAccount(b)
+        );
+        return { derived, unknown };
+    }
+
+    exportAllBurnAccounts(opts: { paranoidMode: true }): ExportedViewKeyData<BurnAccountRecoverable>;
+    exportAllBurnAccounts(opts?: { paranoidMode?: false }): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>;
+    exportAllBurnAccounts({ paranoidMode = false } = {}): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable> {
+        const burnAccounts: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>["burnAccounts"] = {};
+        for (const ethAccount of Object.keys(this.privateData.burnAccounts) as Address[]) {
+            const ethData = this.privateData.burnAccounts[ethAccount];
+            burnAccounts[ethAccount] = { pubKey: ethData.pubKey, detViewKeyCounter: ethData.detViewKeyCounter, burnAccounts: {} };
+            for (const chainId of Object.keys(ethData.burnAccounts) as Hex[]) {
+                burnAccounts[ethAccount].burnAccounts[chainId] = {};
+                for (const difficulty of Object.keys(ethData.burnAccounts[chainId]) as Hex[]) {
+                    const { derived, unknown } = paranoidMode
+                        ? this.exportBurnAccounts(ethAccount, chainId, difficulty, { paranoidMode: true })
+                        : this.exportBurnAccounts(ethAccount, chainId, difficulty);
+                    burnAccounts[ethAccount].burnAccounts[chainId][difficulty] = {
+                        derivedBurnAccounts: derived,
+                        unknownBurnAccounts: Object.fromEntries(unknown.map((b) => [(b as { burnAddress: Address }).burnAddress, b])),
+                    };
+                }
+            }
+        }
+        return { viewKeySigMessage: this.privateData.viewKeySigMessage, detViewKeyRoot: this.privateData.detViewKeyRoot, burnAccounts };
     }
 
     // TODO figure out if we want checks here?
