@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isHex, isAddress } from "viem";
 
-// --- primitives ---------------------------------------------------------------
+// --- zodified viem types  ---------------------------------------------------------------
 
 const HexSchema = z.custom<import("viem").Hex>(
     (val) => typeof val === "string" && isHex(val),
@@ -46,7 +46,7 @@ export const BurnAccountSyncDataSchema = z.object({
 
     // TODO maybe remove minProvableBlock, technically it's the last block accountNonce got update or the last tx the burn account received. Which ever is lowest. But then i need to scan for that tx when it received something. Not worth the rpc calls
     // SyncBurnAccount uses the "Nothing happened rule" which is not totally accurate. It's never too low, but usually too high. Maybe not minProvableBlock, but knownLowSafeProvableBlock. You can look for lower if you want
-    
+
     // a know lower possible block where a root can be used to proof
     minProvableBlock: HexSchema,
 });
@@ -78,14 +78,21 @@ export const BurnAccountSyncDataSchema = z.object({
  * 
  */
 
+// Keys Derived + Recoverable types do *not* have
 // when viewKey derivation is known, these keys can always be recovered
 const derivedRecoverableKeys = { spendingPubKeyX: true, burnAddress: true, powNonce: true, viewingKey: true, blindedAddressDataHash: true } as const;
-// keys that distinguish Derived vs Unknown family
-const derivationKeys = { viewKeySigMessage: true, viewingKeyIndex: true } as const;
+
+// Keys Derived + Recoverable types do *not* have
 // same as derived but powNonce + viewingKey can't be recovered since derivation is unknown
 const unknownRecoverableKeys = { spendingPubKeyX: true, burnAddress: true, blindedAddressDataHash: true } as const;
 
+// Keys Importable is *required* to also have 
+// Importable also needs Recoverable keys
+// This speeds syncing the account when imported
 const importableSyncData = { accountNonce: true, lastSyncedBlock: true, minProvableBlock: true } as const
+
+// keys Derived family is *required* to have. And Unknown family does *not* have
+const derivationKeys = { viewKeySigMessage: true, viewingKeyIndex: true } as const;
 
 // --- derived family -----------------------------------------------------------
 
@@ -104,7 +111,7 @@ export const SyncedUnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.e
 export const UnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend(BurnAccountSyncDataSchema.partial().shape);
 
 // --- unions ------------------------------------------------------------------
-
+// merges families Derived + Unknown
 export const BurnAccountImportableSchema = z.union([
     DerivedBurnAccountImportableSchema,
     UnknownBurnAccountImportableSchema,
@@ -158,6 +165,7 @@ export type BurnAccount = WithReadonlyBase<z.infer<typeof BurnAccountSchema>>;
 export type UnsyncedBurnAccount = WithReadonlyBase<z.infer<typeof UnsyncedBurnAccountSchema>>;
 export type SyncedBurnAccount = WithReadonlyBase<z.infer<typeof SyncedBurnAccountSchema>>;
 
+// union types
 export type BurnAccountImportable = DerivedBurnAccountImportable | UnknownBurnAccountImportable;
 export type BurnAccountRecoverable = DerivedBurnAccountRecoverable | UnknownBurnAccountRecoverable;
 export type AnyBurnAccount = BurnAccount | BurnAccountImportable | BurnAccountRecoverable;
@@ -176,7 +184,7 @@ export const isUnknownBurnAccount = (x: AnyBurnAccount): x is UnknownBurnAccount
 export const isSyncedBurnAccount = (x: BurnAccount): x is SyncedBurnAccount =>
     "totalSpent" in x && x.totalSpent !== undefined;
 
-// --- discriminator -----------------------------------------------------------
+// --- types for type identification  -----------------------------------------------------------
 
 export type BurnAccountDerivation = "Derived" | "Unknown";
 export type BurnAccountState = "Recoverable" | "Importable" | "Unsynced" | "Synced";
@@ -187,14 +195,25 @@ export type BurnAccountType = {
 };
 
 export type ParsedBurnAccount =
-    | { derivation: "Derived";  state: "Synced";      account: SyncedDerivedBurnAccount }
-    | { derivation: "Derived";  state: "Unsynced";    account: DerivedBurnAccount }
-    | { derivation: "Derived";  state: "Importable";  account: DerivedBurnAccountImportable }
-    | { derivation: "Derived";  state: "Recoverable"; account: DerivedBurnAccountRecoverable }
-    | { derivation: "Unknown";  state: "Synced";      account: SyncedUnknownBurnAccount }
-    | { derivation: "Unknown";  state: "Unsynced";    account: UnknownBurnAccount }
-    | { derivation: "Unknown";  state: "Importable";  account: UnknownBurnAccountImportable }
-    | { derivation: "Unknown";  state: "Recoverable"; account: UnknownBurnAccountRecoverable };
+    | { derivation: "Derived"; state: "Synced"; account: SyncedDerivedBurnAccount }
+    | { derivation: "Derived"; state: "Unsynced"; account: DerivedBurnAccount }
+    | { derivation: "Derived"; state: "Importable"; account: DerivedBurnAccountImportable }
+    | { derivation: "Derived"; state: "Recoverable"; account: DerivedBurnAccountRecoverable }
+    | { derivation: "Unknown"; state: "Synced"; account: SyncedUnknownBurnAccount }
+    | { derivation: "Unknown"; state: "Unsynced"; account: UnknownBurnAccount }
+    | { derivation: "Unknown"; state: "Importable"; account: UnknownBurnAccountImportable }
+    | { derivation: "Unknown"; state: "Recoverable"; account: UnknownBurnAccountRecoverable };
+
+export type ParsedBurnAccounts = {
+    full: {
+        derived: DerivedBurnAccount[];
+        unknown: UnknownBurnAccount[];
+    };
+    imported: {
+        derived: (DerivedBurnAccountImportable | DerivedBurnAccountRecoverable)[];
+        unknown: (UnknownBurnAccountImportable | UnknownBurnAccountRecoverable)[];
+    };
+};
 
 // --- parse -------------------------------------------------------------------
 
@@ -210,28 +229,17 @@ export function parseBurnAccount(item: unknown): AnyBurnAccount {
  */
 export function identifyBurnAccount(account: AnyBurnAccount): ParsedBurnAccount {
     if ("viewKeySigMessage" in account) {
-        if (SyncedDerivedBurnAccountSchema.safeParse(account).success)      return { derivation: "Derived", state: "Synced",      account: SyncedDerivedBurnAccountSchema.parse(account) };
-        if (DerivedBurnAccountImportableSchema.safeParse(account).success)  return { derivation: "Derived", state: "Importable",  account: DerivedBurnAccountImportableSchema.parse(account) };
+        if (SyncedDerivedBurnAccountSchema.safeParse(account).success) return { derivation: "Derived", state: "Synced", account: SyncedDerivedBurnAccountSchema.parse(account) };
+        if (DerivedBurnAccountImportableSchema.safeParse(account).success) return { derivation: "Derived", state: "Importable", account: DerivedBurnAccountImportableSchema.parse(account) };
         if (DerivedBurnAccountRecoverableSchema.safeParse(account).success) return { derivation: "Derived", state: "Recoverable", account: DerivedBurnAccountRecoverableSchema.parse(account) };
-        return                                                                     { derivation: "Derived", state: "Unsynced",    account: DerivedBurnAccountSchema.parse(account) };
+        return { derivation: "Derived", state: "Unsynced", account: DerivedBurnAccountSchema.parse(account) };
     } else {
-        if (SyncedUnknownBurnAccountSchema.safeParse(account).success)      return { derivation: "Unknown", state: "Synced",      account: SyncedUnknownBurnAccountSchema.parse(account) };
-        if (UnknownBurnAccountImportableSchema.safeParse(account).success)  return { derivation: "Unknown", state: "Importable",  account: UnknownBurnAccountImportableSchema.parse(account) };
+        if (SyncedUnknownBurnAccountSchema.safeParse(account).success) return { derivation: "Unknown", state: "Synced", account: SyncedUnknownBurnAccountSchema.parse(account) };
+        if (UnknownBurnAccountImportableSchema.safeParse(account).success) return { derivation: "Unknown", state: "Importable", account: UnknownBurnAccountImportableSchema.parse(account) };
         if (UnknownBurnAccountRecoverableSchema.safeParse(account).success) return { derivation: "Unknown", state: "Recoverable", account: UnknownBurnAccountRecoverableSchema.parse(account) };
-        return                                                                     { derivation: "Unknown", state: "Unsynced",    account: UnknownBurnAccountSchema.parse(account) };
+        return { derivation: "Unknown", state: "Unsynced", account: UnknownBurnAccountSchema.parse(account) };
     }
 }
-
-export type ParsedBurnAccounts = {
-    full: {
-        derived: DerivedBurnAccount[];
-        unknown: UnknownBurnAccount[];
-    };
-    imported: {
-        derived: (DerivedBurnAccountImportable | DerivedBurnAccountRecoverable)[];
-        unknown: (UnknownBurnAccountImportable | UnknownBurnAccountRecoverable)[];
-    };
-};
 
 /**
  * Parses a JSON string containing an array of burn accounts of any variant.
@@ -243,8 +251,8 @@ export function parseBurnAccountArray(json: string): ParsedBurnAccounts {
     if (!Array.isArray(parsed)) throw new Error("Import must be a JSON array");
 
     const result: ParsedBurnAccounts = {
-        full:       { derived: [], unknown: [] },
-        imported:   { derived: [], unknown: [] },
+        full: { derived: [], unknown: [] },
+        imported: { derived: [], unknown: [] },
     };
 
     parsed.forEach((item) => {
