@@ -1,4 +1,4 @@
-use reMintLib::{bulkReMint, BurnDataPublic, BurnDataPrivate, SignatureData};
+use reMintLib::{poseidon2_hasher, bulkReMint, BurnDataPublic, BurnDataPrivate, SignatureData};
 use constants::{MAX_TREE_DEPTH};
 
 global BURN_ADDRESSES_LEN: u32 = 100; 
@@ -41,6 +41,11 @@ fn main(
         //private
         burn_data_private,
         pub_key_x_field,      
-        amount_burn_addresses
+        amount_burn_addresses,
+        poseidon2_hasher,
+        poseidon2_hasher,
+        poseidon2_hasher,
+        poseidon2_hasher,
+        poseidon2_hasher,
     )
 }

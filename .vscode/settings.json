@@ -5,6 +5,7 @@
         "chainid",
         "ciphertext",
         "FEEDATA",
+        "hashers",
         "Merkle",
         "nargo",
         "permissionlessly",
