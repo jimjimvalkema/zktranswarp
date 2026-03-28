@@ -1,8 +1,8 @@
 // PrivateWallet is a wrapper that exposes some of viem's WalletClient functions and requires them to only ever use one ethAccount
 
-import type { Address, Hex, WalletClient } from "viem";
+import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { hashMessage, padHex, toHex } from "viem";
-import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree } from "./types.ts"
+import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, WormholeToken } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
@@ -10,13 +10,16 @@ import { getDeterministicBurnAccounts } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
 import type { IndexHtmlTransformContext } from "vite";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
+import { LeanIMT } from "@zk-kit/lean-imt";
+import { poseidon2IMTHashFunc } from "./syncing.ts";
+import { PreSyncedTreeStringifyableSchema } from "./schemas.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 
 export class BurnWallet {
     readonly burnViewKeyManager: BurnViewKeyManager
     readonly viemWallet: WalletClient;
-    readonly merkleTree: PreSyncedTree;
+    merkleTree: PreSyncedTree;
 
     /**
      * @param viemWallet
@@ -29,26 +32,23 @@ export class BurnWallet {
      */
     constructor(
         viemWallet: WalletClient, powDifficulty: bigint,
-        { merkleTree, walletDataImport, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId }:
-            {  merkleTree?:PreSyncedTree, walletDataImport?: string, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint } = {}
-    ) { 
+        { merkleTree, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId }:
+            { merkleTree?: PreSyncedTree, walletDataImport?: string, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint } = {}
+    ) {
 
-        const walletImportParsed = walletDataImport ? JSON.parse(walletDataImport) : {}
         this.viemWallet = viemWallet;
-        // merkleTree is assumed to be more up to date then the json import
-        // TODO warning for this?
-        this.merkleTree = merkleTree ? merkleTree : walletImportParsed.merkleTree
+        // TODO firstSyncedBlock;0n might create issues since it should be the deployment block of the contract
+        this.merkleTree = merkleTree ? merkleTree : {tree:new LeanIMT(poseidon2IMTHashFunc), lastSyncedBlock:0n, firstSyncedBlock:0n} as PreSyncedTree
         this.burnViewKeyManager = new BurnViewKeyManager(
             viemWallet, powDifficulty,
-            { 
-                viewKeyData: "privateData" in walletImportParsed  ? walletImportParsed.privateData : undefined , 
-                viewKeySigMessage, acceptedChainIds, chainId 
+            {
+                viewKeySigMessage, acceptedChainIds, chainId
             }
         )
     }
 
-    async connect(ethAccount?:Address) {
-        ethAccount??= (await this.viemWallet.getAddresses())[0]
+    async connect(ethAccount?: Address) {
+        ethAccount ??= (await this.viemWallet.getAddresses())[0]
         return await this.burnViewKeyManager.connect(ethAccount)
     }
 
@@ -97,29 +97,29 @@ export class BurnWallet {
         return this.burnViewKeyManager.createBurnAccount({ powNonce, viewingKey, viewingKeyIndex, chainId, difficulty, async })
     }
 
-/**
- * Creates multiple burn accounts in bulk, deterministically deriving a PoW
- * nonce and burn address for each.
- *
- * @notice PoW nonces are found in parallel when `async: true`.
- *
- * @param amountOfBurnAccounts - Number of burn accounts to create.
- * @param options - Optional configuration object.
- * @param options.chainId - Target chain ID. Defaults to `this.defaults.chainId`.
- *   Must be in `this.acceptedChainIds`.
- * @param options.difficulty - PoW difficulty override. Defaults to
- *   `this.defaults.powDifficulty`.
- * @param options.async - If `true`, each account's PoW nonce is computed on
- *   its own worker thread, avoiding UI freezes. Defaults to `false`.
- *
- * @returns An array of newly created {@link BurnAccount} objects (either det or non-det
- *   depending on inputs), also appended to `this.privateData.detBurnAccounts`.
- *
- * @throws {Error} If `chainId` is not in `this.acceptedChainIds`.
- *
- * @TODO spawning one worker per account may be inefficient beyond available
- *   thread count  assumes most callers don't need large batches.
- */
+    /**
+     * Creates multiple burn accounts in bulk, deterministically deriving a PoW
+     * nonce and burn address for each.
+     *
+     * @notice PoW nonces are found in parallel when `async: true`.
+     *
+     * @param amountOfBurnAccounts - Number of burn accounts to create.
+     * @param options - Optional configuration object.
+     * @param options.chainId - Target chain ID. Defaults to `this.defaults.chainId`.
+     *   Must be in `this.acceptedChainIds`.
+     * @param options.difficulty - PoW difficulty override. Defaults to
+     *   `this.defaults.powDifficulty`.
+     * @param options.async - If `true`, each account's PoW nonce is computed on
+     *   its own worker thread, avoiding UI freezes. Defaults to `false`.
+     *
+     * @returns An array of newly created {@link BurnAccount} objects (either det or non-det
+     *   depending on inputs), also appended to `this.privateData.detBurnAccounts`.
+     *
+     * @throws {Error} If `chainId` is not in `this.acceptedChainIds`.
+     *
+     * @TODO spawning one worker per account may be inefficient beyond available
+     *   thread count  assumes most callers don't need large batches.
+     */
     async createBurnAccountsBulk(
         amountOfBurnAccounts: number,
         { startingViewKeyIndex, chainId, difficulty, async = false }:
@@ -128,17 +128,49 @@ export class BurnWallet {
         return this.burnViewKeyManager.createBurnAccountsBulk(amountOfBurnAccounts, { startingViewKeyIndex, chainId, difficulty, async })
     }
 
-    // TODO
-    // importBurnAccount(burnAccountImport: string) {
-    //     const burnAccount = JSON.parse(burnAccountImport) as BurnAccount
-    //     this.burnViewKeyManager.importBurnAccount(burnAccount)
-    // }
 
-    exportBurnAccount() {
-        throw new Error("TODO IMPLEMENT")
+
+    // TODO make optional that viewKeys have to be exported. Probably just ban unknown derivation accounts
+    exportWallet({ paranoidMode = false, merkleTree = true, viewKeyData = true }: {paranoidMode?:boolean, merkleTree?: boolean, viewKeyData?: boolean } = {}) {
+        return JSON.stringify({
+            privateData: viewKeyData ? this.burnViewKeyManager.exportViewKeyData(paranoidMode) : undefined,
+            merkleTree: merkleTree ? {firstSyncedBlock:this.merkleTree.firstSyncedBlock, lastSyncedBlock:this.merkleTree.lastSyncedBlock, exportedNodes:this.merkleTree.tree.export() } : undefined
+        },null,2)
     }
 
-    exportWalletFull() {
-        return JSON.stringify({privateData:this.burnViewKeyManager.privateData, merkleTree:this.merkleTree })
+/**
+ * Imports wallet data from a JSON string, optionally restoring the Merkle tree
+ * and/or view key data.
+ *
+ * @param json - Stringified wallet export produced by {@link exportWallet}.
+ * @param wormholeTokenContract - The Wormhole token contract instance, used to sync view key data.
+ * @param archiveClient - Archive node client, used to sync view key data.
+ * @param options 
+ * @param options.merkleTree - Whether to import the Merkle tree. Defaults to `true`.
+ * @param options.viewKeyData - Whether to import the view key data. Defaults to `true`.
+ */
+async importWallet(
+    json: string,
+    wormholeTokenContract: WormholeToken,
+    archiveClient: PublicClient,
+    { merkleTree = true, viewKeyData = true }: { merkleTree?: boolean, viewKeyData?: boolean } = {}
+) {
+    const parsed = JSON.parse(json) as { merkleTree: PreSyncedTreeStringifyable, privateData: ExportedViewKeyData }
+
+    if (parsed.merkleTree && merkleTree) {
+        const stringTree = PreSyncedTreeStringifyableSchema.parse(parsed.merkleTree)
+        const tree = LeanIMT.import(poseidon2IMTHashFunc, stringTree.exportedNodes)
+        
+        // TODO imported tree is assumed to be more upto date here
+        this.merkleTree = {
+            firstSyncedBlock: BigInt(stringTree.firstSyncedBlock),
+            lastSyncedBlock: BigInt(stringTree.lastSyncedBlock),
+            tree: tree
+        } as PreSyncedTree
     }
+
+    if (parsed.privateData && viewKeyData) {
+        await this.burnViewKeyManager.importViewKeyWalletData(parsed.privateData, wormholeTokenContract, archiveClient)
+    }
+}
 }

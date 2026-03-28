@@ -1,9 +1,15 @@
 import { bytesToHex, hexToBytes, padHex, toHex, type Address, type Hex } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
-import type { BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken, AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable, DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, RecoverableBurnAccount, BurnAccountStorage, FullViewKeyData, UnknownBurnAccount } from "./types.ts";
+import type {
+    BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken,
+    AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable,
+    DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, FullViewKeyData, UnknownBurnAccount, ExportedViewKeyData,
+    BurnAccountRecoverable,
+    UnsyncedBurnAccount
+} from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS } from "./constants.ts";
-import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema } from "./schemas.ts";
+import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema, type BurnAccountStorage } from "./schemas.ts";
 
 export function padWithRandomHex({ arr, len, hexSize, dir }: { arr: Hex[], len: number, hexSize: number, dir: 'left' | 'right' }): Hex[] {
     const padding = Array.from({ length: len - arr.length }, () =>
@@ -83,7 +89,7 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
     ethAccounts ??= Object.keys(burnAccountsStorage) as Address[]
     selectedChainIds ??= ethAccounts.flatMap((addr) => Object.keys(burnAccountsStorage[addr].burnAccounts)) as Hex[]
 
-    let burnAccounts:BurnAccount[] = []
+    let burnAccounts: BurnAccount[] = []
     for (const ethAccount of ethAccounts) {
         for (const chainId of selectedChainIds) {
             // select all difficulties if selectedDifficulties was not set
@@ -93,8 +99,7 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
                     burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].derivedBurnAccounts]
                 }
                 if (nonDetBurnAccounts) {
-                    burnAccounts = [...burnAccounts, ...Object.values(burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts) ]//as UnknownBurnAccount[]]
-
+                    burnAccounts = [...burnAccounts, ...Object.values(burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts)] as UnknownBurnAccount[]
                 }
             }
         }
@@ -120,13 +125,13 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
  * @returns A flat array of matching {@link BurnAccount} objects.
  */
 export function getAllBurnAccounts(privateData: FullViewKeyData,
-    { difficulties, chainIds,ethAccounts, deterministicAccounts = true, nonDeterministicAccounts = true }:
-        { difficulties?: bigint[], chainIds?: bigint[], ethAccounts?:Address[],deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
+    { difficulties, chainIds, ethAccounts, deterministicAccounts = true, nonDeterministicAccounts = true }:
+        { difficulties?: bigint[], chainIds?: bigint[], ethAccounts?: Address[], deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
 ): BurnAccount[] {
     const difficultiesHex = difficulties !== undefined ? difficulties.map((diff) => toHex(diff, { size: 32 }), { size: 32 }) : undefined;
     const chainIdsHex = chainIds !== undefined ? chainIds.map((chainId) => toHex(chainId, { size: 32 }), { size: 32 }) : undefined;
 
-    return filterBurnAccounts(privateData.burnAccounts, difficultiesHex, chainIdsHex, ethAccounts, deterministicAccounts, nonDeterministicAccounts) 
+    return filterBurnAccounts(privateData.burnAccounts, difficultiesHex, chainIdsHex, ethAccounts, deterministicAccounts, nonDeterministicAccounts)
 }
 
 // TODO move this into BurnViewKeyManager
@@ -163,9 +168,48 @@ export function toImportableBurnAccount(account: SyncedBurnAccount): BurnAccount
     return UnknownBurnAccountImportableSchema.parse(account) as UnknownBurnAccountImportable;
 }
 
-export function toRecoverableBurnAccount(account: AnyBurnAccount): RecoverableBurnAccount {
+export function toImportableDerivedBurnAccount(account: BurnAccount): DerivedBurnAccountImportable {
+    account.accountNonce ??= toHex(0n)
+    account.minProvableBlock ??= toHex(0n)
+    account.lastSyncedBlock ??= toHex(0n)
+    return DerivedBurnAccountImportableSchema.parse(account) as DerivedBurnAccountImportable;
+}
+export function toImportableUnknownBurnAccount(account: BurnAccount): UnknownBurnAccountImportable {
+    return UnknownBurnAccountImportableSchema.parse(account) as UnknownBurnAccountImportable;
+}
+
+export function toRecoverableDerivedBurnAccount(account: BurnAccount): DerivedBurnAccountRecoverable {
+    return DerivedBurnAccountRecoverableSchema.parse(account) as DerivedBurnAccountImportable;
+}
+export function toRecoverableUnknownBurnAccount(account: BurnAccount): UnknownBurnAccountImportable {
+    return UnknownBurnAccountRecoverableSchema.parse(account) as UnknownBurnAccountImportable;
+}
+
+export function toRecoverableBurnAccount(account: AnyBurnAccount): BurnAccountRecoverable {
     if (isDerivedBurnAccount(account)) {
         return DerivedBurnAccountRecoverableSchema.parse(account) as DerivedBurnAccountRecoverable;
     }
     return UnknownBurnAccountRecoverableSchema.parse(account) as UnknownBurnAccountRecoverable;
+}
+
+export function BurnAccountToFlatArr(data: FullViewKeyData): BurnAccount[] {
+    return Object.values(data.burnAccounts).flatMap(ethData =>
+        Object.values(ethData.burnAccounts).flatMap(byChain =>
+            Object.values(byChain).flatMap(({ derivedBurnAccounts, unknownBurnAccounts }) => [
+                ...derivedBurnAccounts,
+                ...Object.values(unknownBurnAccounts),
+            ])
+        )
+    );
+}
+
+export function BurnAccountToFlatArrExportedData<T>(data: ExportedViewKeyData<T>): T[] {
+    return Object.values(data.burnAccounts).flatMap(ethData =>
+        Object.values(ethData.burnAccounts).flatMap(byChain =>
+            Object.values(byChain).flatMap(({ derivedBurnAccounts, unknownBurnAccounts }) => [
+                ...derivedBurnAccounts,
+                ...Object.values(unknownBurnAccounts),
+            ])
+        )
+    );
 }

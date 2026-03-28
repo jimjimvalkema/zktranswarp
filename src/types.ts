@@ -3,7 +3,7 @@ import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.so
 import type { InputMap } from "@noir-lang/noir_js";
 import type { UltraHonkBackend } from "@aztec/bb.js";
 import { LeanIMT } from "@zk-kit/lean-imt";
-import type { DerivedBurnAccount, SyncedBurnAccount, UnknownBurnAccount, BurnAccountRecoverable, BurnAccountImportable, PubKeyHex } from "./schemas.ts";
+import type { DerivedBurnAccount, SyncedBurnAccount, UnknownBurnAccount, BurnAccountRecoverable, BurnAccountImportable, PubKeyHex, ExportedViewKeyData } from "./schemas.ts";
 
 export type WormholeToken = GetContractReturnType<WormholeToken$Type["abi"], Required<{ public?: PublicClient; wallet?: WalletClient; }>>
 
@@ -139,9 +139,9 @@ export type {
     BurnAccountState,
     ParsedBurnAccount,
     ParsedBurnAccounts,
-    BurnAccountStorage,
     FullViewKeyData,
     ExportedViewKeyData,
+    PreSyncedTreeStringifyable
 } from "./schemas.ts";
 
 export interface SignatureHashPreImg {
@@ -154,12 +154,6 @@ export interface PreSyncedTree {
     tree: LeanIMT<bigint>
     lastSyncedBlock: bigint,
     firstSyncedBlock: bigint
-}
-
-export interface PreSyncedTreeStringifyable {
-    exportedNodes: string,
-    lastSyncedBlock: Hex,
-    firstSyncedBlock: Hex,
 }
 
 export interface SelfRelayInputs {

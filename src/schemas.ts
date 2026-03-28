@@ -89,7 +89,7 @@ const unknownRecoverableKeys = { spendingPubKeyX: true, burnAddress: true, blind
 // Keys Importable is *required* to also have 
 // Importable also needs Recoverable keys
 // This speeds syncing the account when imported
-const importableSyncData = { accountNonce: true, lastSyncedBlock: true, minProvableBlock: true } as const
+const importableSyncData = { accountNonce: true, lastSyncedBlock: true, minProvableBlock: true, powNonce:true } as const
 
 // keys Derived family is *required* to have. And Unknown family does *not* have
 const derivationKeys = { viewKeySigMessage: true, viewingKeyIndex: true } as const;
@@ -97,17 +97,17 @@ const derivationKeys = { viewKeySigMessage: true, viewingKeyIndex: true } as con
 // --- derived family -----------------------------------------------------------
 
 export const UnsyncedDerivedBurnAccountSchema = BurnAccountBaseSchema;
-export const DerivedBurnAccountRecoverableSchema = BurnAccountBaseSchema.partial(derivedRecoverableKeys);
-export const DerivedBurnAccountImportableSchema = DerivedBurnAccountRecoverableSchema.extend(BurnAccountSyncDataSchema.pick(importableSyncData).shape);
 export const SyncedDerivedBurnAccountSchema = BurnAccountBaseSchema.extend(BurnAccountSyncDataSchema.shape);
+export const DerivedBurnAccountRecoverableSchema = BurnAccountBaseSchema.omit(derivedRecoverableKeys);
+export const DerivedBurnAccountImportableSchema = DerivedBurnAccountRecoverableSchema.extend(SyncedDerivedBurnAccountSchema.pick(importableSyncData).shape);
 export const DerivedBurnAccountSchema = BurnAccountBaseSchema.extend(BurnAccountSyncDataSchema.partial().shape);
 
 // --- unknown family ----------------------------------------------------------
 
 export const UnsyncedUnknownBurnAccountSchema = BurnAccountBaseSchema.omit(derivationKeys);
-export const UnknownBurnAccountRecoverableSchema = UnsyncedUnknownBurnAccountSchema.partial(unknownRecoverableKeys);
-export const UnknownBurnAccountImportableSchema = UnknownBurnAccountRecoverableSchema.extend(BurnAccountSyncDataSchema.pick(importableSyncData).shape);
 export const SyncedUnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend(BurnAccountSyncDataSchema.shape);
+export const UnknownBurnAccountRecoverableSchema = UnsyncedUnknownBurnAccountSchema.omit(unknownRecoverableKeys);
+export const UnknownBurnAccountImportableSchema = UnknownBurnAccountRecoverableSchema.extend(SyncedUnknownBurnAccountSchema.pick(importableSyncData).shape);
 export const UnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend(BurnAccountSyncDataSchema.partial().shape);
 
 // --- unions ------------------------------------------------------------------
@@ -241,40 +241,6 @@ export function identifyBurnAccount(account: AnyBurnAccount): ParsedBurnAccount 
     }
 }
 
-/**
- * Parses a JSON string containing an array of burn accounts of any variant.
- * Throws on the first invalid account.
- * Returns accounts grouped by family and whether they are full or importable/recoverable.
- */
-export function parseBurnAccountArray(json: string): ParsedBurnAccounts {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) throw new Error("Import must be a JSON array");
-
-    const result: ParsedBurnAccounts = {
-        full: { derived: [], unknown: [] },
-        imported: { derived: [], unknown: [] },
-    };
-
-    parsed.forEach((item) => {
-        const idAccount = identifyBurnAccount(parseBurnAccount(item));
-
-        if (idAccount.derivation === "Derived") {
-            if (idAccount.state === "Unsynced" || idAccount.state === "Synced") {
-                result.full.derived.push(idAccount.account as DerivedBurnAccount);
-            } else {
-                result.imported.derived.push(idAccount.account as DerivedBurnAccountImportable | DerivedBurnAccountRecoverable);
-            }
-        } else {
-            if (idAccount.state === "Unsynced" || idAccount.state === "Synced") {
-                result.full.unknown.push(idAccount.account as UnknownBurnAccount);
-            } else {
-                result.imported.unknown.push(idAccount.account as UnknownBurnAccountImportable | UnknownBurnAccountRecoverable);
-            }
-        }
-    });
-
-    return result;
-}
 // --- compound schemas --------------------------------------------------------
 
 // 32-byte padded hex — used as chainId and difficulty keys (0x + 64 hex chars)
@@ -307,7 +273,7 @@ export const PubKeyHexSchema = z.object({
 export type PubKeyHex = z.infer<typeof PubKeyHexSchema>;
 
 
-const ViewKeyDataSchema = <T extends z.ZodTypeAny>(burnAccountSchema: T) => z.object({
+export const ViewKeyDataSchema = <T extends z.ZodTypeAny>(burnAccountSchema: T) => z.object({
     viewKeySigMessage: z.string(),
     detViewKeyRoot: HexSchema.optional(),
     burnAccounts: keyValidatedRecord(
@@ -334,6 +300,15 @@ export const FullViewKeyDataSchema = ViewKeyDataSchema(BurnAccountSchema);
 export const ExportedViewKeyDataSchema = ViewKeyDataSchema(BurnAccountImportableSchema);
 export const ExportedViewKeyDataParanoidSchema = ViewKeyDataSchema(z.union([DerivedBurnAccountRecoverableSchema, UnknownBurnAccountRecoverableSchema]));
 
+// Covers ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>.
+// Importable variants are checked first (more specific — they have accountNonce etc.).
+export const ExportedViewKeyDataCombinedSchema = ViewKeyDataSchema(z.union([
+    DerivedBurnAccountImportableSchema,
+    UnknownBurnAccountImportableSchema,
+    DerivedBurnAccountRecoverableSchema,
+    UnknownBurnAccountRecoverableSchema,
+]));
+
 // inferred types
 export type FullViewKeyData = z.infer<typeof FullViewKeyDataSchema>;
 
@@ -344,10 +319,18 @@ export type ExportedViewKeyData<T = BurnAccountImportable> = Omit<FullViewKeyDat
         detViewKeyCounter: number;
         burnAccounts: Record<import("viem").Hex, Record<import("viem").Hex, {
             derivedBurnAccounts: T[];
-            unknownBurnAccounts: Record<import("viem").Address, T>;
+            unknownBurnAccounts: T[];
         }>>;
     }>;
 };
 
 export const BurnAccountStorageSchema = FullViewKeyDataSchema.shape.burnAccounts;
 export type BurnAccountStorage = z.infer<typeof BurnAccountStorageSchema>;
+
+
+export const PreSyncedTreeStringifyableSchema = z.object({
+    exportedNodes: z.string(),
+    lastSyncedBlock: HexSchema,
+    firstSyncedBlock: HexSchema,
+});
+export type PreSyncedTreeStringifyable = z.infer<typeof PreSyncedTreeStringifyableSchema>;

@@ -93,7 +93,8 @@ describe("Token", async function () {
             const __dirname = dirname(fileURLToPath(import.meta.url));
             const path =  join(__dirname, '../test/data/privateDataAlice.json')
             console.log({path})
-            await writeFile(path, alicePrivate.exportWalletFull(), 'utf-8');
+            // no paranoidMode, so we get our pow nonces
+            await writeFile(path, alicePrivate.exportWallet({merkleTree:false, paranoidMode:false}), 'utf-8');
             
         })
     })

@@ -13,7 +13,7 @@ import { createRelayerInputs, getBackend } from "../src/proving.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
 import { proofAndSelfRelay, relayTx, safeBurn, superSafeBurn } from "../src/transact.ts";
 import { getContract, padHex, parseEventLogs, parseUnits, toHex, type Hash, type Hex } from "viem";
-import type { BurnAccount, FeeData, ViewKeyData } from "../src/types.ts";
+import type { BurnAccount, FeeData } from "../src/types.ts";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -60,9 +60,9 @@ describe("Token", async function () {
             WormholeTokenContractName,
             [
                 [
-                    {contractAddress: reMintVerifier2.address, size: 2},
-                    {contractAddress: reMintVerifier32.address, size: 32},
-                    {contractAddress: reMintVerifier100.address, size: 100}
+                    { contractAddress: reMintVerifier2.address, size: 2 },
+                    { contractAddress: reMintVerifier32.address, size: 32 },
+                    { contractAddress: reMintVerifier100.address, size: 100 }
                 ],
                 toHex(POW_DIFFICULTY, { size: 32 }),
                 RE_MINT_LIMIT,
@@ -93,9 +93,10 @@ describe("Token", async function () {
             await wormholeTokenAlice.write.getFreeTokens([(await alice.getAddresses())[0]]) //sends 1_000_000n token
 
             const chainId = BigInt(await publicClient.getChainId())
-            const alicePrivate = new BurnWallet(alice, powDifficulty, {walletDataImport:PRE_MADE_BURN_ACCOUNTS, acceptedChainIds: [BigInt(await publicClient.getChainId())] })
-            const aliceBurnAccount = await alicePrivate.createBurnAccount({viewingKeyIndex:0})
-            const aliceRefundBurnAccount = await alicePrivate.createBurnAccount({viewingKeyIndex:1})
+            const alicePrivate = new BurnWallet(alice, powDifficulty, { acceptedChainIds: [BigInt(await publicClient.getChainId())], powDifficulty: powDifficulty })
+            await alicePrivate.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken, publicClient)
+            const aliceBurnAccount = await alicePrivate.createBurnAccount({ viewingKeyIndex: 0 })
+            const aliceRefundBurnAccount = await alicePrivate.createBurnAccount({ viewingKeyIndex: 1 })
             const decimalsToken = await wormholeToken.read.decimals()
             const amountToBurn = parseUnits("42069", decimalsToken);
             await safeBurn(aliceBurnAccount, amountToBurn, wormholeTokenAlice, (await alice.getAddresses())[0])
@@ -122,7 +123,7 @@ describe("Token", async function () {
 
 
             const reMintRecipient = bob.account.address
-            const {relayInputs:relayerInputs} = await createRelayerInputs(
+            const { relayInputs: relayerInputs } = await createRelayerInputs(
                 reMintRecipient,
                 reMintAmount,
                 alicePrivate.burnViewKeyManager,

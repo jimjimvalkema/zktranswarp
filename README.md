@@ -83,9 +83,13 @@ setup secrets:
 
 deploy main contracts:  
 ```shell
-yarn hardhat ignition deploy ignition/modules/split.ts --verify --network sepolia
 yarn hardhat ignition deploy ignition/modules/wormtoken.ts --verify --network sepolia
 ```  
+
+deploy split contract (used for batch erc20 sends in ui)
+```shell
+yarn hardhat ignition deploy ignition/modules/split.ts --verify --network sepolia
+```
 <!-- ```shell
 yarn hardhat run scripts/deploy.ts --network sepolia
 ``` -->
