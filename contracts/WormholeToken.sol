@@ -61,7 +61,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
 
     LeanIMTData public tree;
 
-    mapping (uint8 => address) public verifierPerSize;
+    mapping (uint8 => address) public VERIFIERS_PER_SIZE;
     
     // configurable circuit constants
     // an issuer might change these values depending on their needs
@@ -72,6 +72,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
     // this one is the only that is not used by the contract, 
     // but is just here so a ui interfacing with this token knows the tree depth that circuit uses
     uint16 public MAX_TREE_DEPTH;
+    //@TODO add list of allowed chainIds. This should be getter function
     /**
      * 
      * @param _verifiers needs to be sorted smallest to lowest.
@@ -88,7 +89,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
             Verifier memory _verifier = _verifiers[i];
             require(_lastSize < _verifier.size, "_verifiers needs to be sorted from smallest to largest size");
             _lastSize = _verifier.size;
-            verifierPerSize[_verifier.size] = _verifier.contractAddress;
+            VERIFIERS_PER_SIZE[_verifier.size] = _verifier.contractAddress;
             VERIFIER_SIZES.push(_verifier.size);
         }
 
@@ -348,7 +349,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
         // format public inputs and verify proof 
         bytes32[] memory publicInputs = _formatPublicInputs(_root, _amount, signatureHash, _totalMintedLeafs, _nullifiers);
         uint8 verifierSize = uint8(_nullifiers.length);
-        address verifierAddress = verifierPerSize[verifierSize];
+        address verifierAddress = VERIFIERS_PER_SIZE[verifierSize];
         require(verifierAddress != address(0), "amount of note hashes not supported");
         if (!IVerifier(verifierAddress).verify(_snarkProof, publicInputs)) {
             revert VerificationFailed();

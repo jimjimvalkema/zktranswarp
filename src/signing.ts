@@ -26,18 +26,18 @@ export function getViewingKey({ signature }: { signature: Hex }) {
 }
 
 export async function signPrivateTransfer(
-    args: { BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address }
+    BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address 
 ): Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }>;
 
 export async function signPrivateTransfer(
-    args: { BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs, chainId: number, tokenAddress: Address, ethAccount:Address }
+    BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address 
 ): Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }>;
 
 // TODO make ethAccount optional, and have BurnViewKeyManager have a list that the user can order, where top one is the default account used
-export async function signPrivateTransfer({ BurnViewKeyManager, signatureInputs, chainId, tokenAddress,ethAccount }: { BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address }):
+export async function signPrivateTransfer(BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address):
     Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }> {
     chainId ??= await BurnViewKeyManager.viemWallet.getChainId()
-    const domain = getPrivateReMintDomain(chainId, tokenAddress)
+    const domain = getPrivateReMintDomain(chainId, signatureInputs.contract)
 
     const baseMessage = {
         _recipient: signatureInputs.recipient,

@@ -1,16 +1,20 @@
-import { bytesToHex, hexToBytes, padHex, toHex, type Address, type Hex } from "viem";
+import { bytesToHex, getContract, hexToBytes, padHex, toHex, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
 import type {
     BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken,
     AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable,
     DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, FullViewKeyData, UnknownBurnAccount, ExportedViewKeyData,
     BurnAccountRecoverable,
-    UnsyncedBurnAccount
+    UnsyncedBurnAccount,
+    AtLeastOne,
+    WormholeClientArg
 } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS } from "./constants.ts";
 import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema, type BurnAccountStorage } from "./schemas.ts";
-
+import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
+import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.js"
+export const wormholeTokenAbi = WormholeTokenArtifact.abi as WormholeToken$Type["abi"]
 export function padWithRandomHex({ arr, len, hexSize, dir }: { arr: Hex[], len: number, hexSize: number, dir: 'left' | 'right' }): Hex[] {
     const padding = Array.from({ length: len - arr.length }, () =>
         bytesToHex(crypto.getRandomValues(new Uint8Array(hexSize)))
@@ -212,4 +216,16 @@ export function BurnAccountToFlatArrExportedData<T>(data: ExportedViewKeyData<T>
             ])
         )
     );
+}
+
+
+export function getWormholeTokenContract(address: Address, client: { wallet: WalletClient, public: PublicClient }): WormholeToken<{ wallet: WalletClient, public: PublicClient }>;
+export function getWormholeTokenContract(address: Address, client: { wallet: WalletClient }): WormholeToken<{ wallet: WalletClient }>;
+export function getWormholeTokenContract(address: Address, client: { public: PublicClient }): WormholeToken<{ public: PublicClient }>;
+export function getWormholeTokenContract(address: Address, client: { wallet?: WalletClient, public?: PublicClient }): WormholeToken<any> {
+    return getContract({
+        address,
+        abi: wormholeTokenAbi,
+        client: client as { public: PublicClient; wallet: WalletClient },
+    });
 }

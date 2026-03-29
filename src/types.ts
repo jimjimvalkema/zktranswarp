@@ -3,10 +3,16 @@ import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.so
 import type { InputMap } from "@noir-lang/noir_js";
 import type { UltraHonkBackend } from "@aztec/bb.js";
 import { LeanIMT } from "@zk-kit/lean-imt";
-import type { DerivedBurnAccount, SyncedBurnAccount, UnknownBurnAccount, BurnAccountRecoverable, BurnAccountImportable, PubKeyHex, ExportedViewKeyData } from "./schemas.ts";
+import type { DerivedBurnAccount, SyncedBurnAccount, UnknownBurnAccount, BurnAccountRecoverable, BurnAccountImportable, PubKeyHex, ExportedViewKeyData, PreSyncedTreeStringifyable } from "./schemas.ts";
+import { number } from "zod";
 
-export type WormholeToken = GetContractReturnType<WormholeToken$Type["abi"], Required<{ public?: PublicClient; wallet?: WalletClient; }>>
+export type WormholeClientArg =
+    | { public: PublicClient; wallet: WalletClient }
+    | { public: PublicClient }
+    | { wallet: WalletClient };
 
+export type WormholeToken<TClient extends WormholeClientArg = { public: PublicClient; wallet: WalletClient }> =
+    GetContractReturnType<WormholeToken$Type["abi"], TClient>;
 // we could use import type { FixedLengthArray } from 'type-fest';
 // but for now i just do branded types so it yells at you if you do something stupid, but it doesn't check the length
 export type U8AsHex = Hex & { __brand: 'u8AsHex' }
@@ -14,6 +20,10 @@ export type U8sAsHexArrLen32 = U8AsHex[] & { __brand: 'u8sAsHexArrLen32' }
 export type U8sAsHexArrLen64 = U8AsHex[] & { __brand: 'u8sAsHexArrLen64' }
 export type U32AsHex = Hex & { __brand: 'u32AsHex' }
 export type U1AsHexArr = Hex[] & { __brand: 'u1AsHexArr' }
+
+export type AtLeastOne<T> = Partial<T> & (
+    { [K in keyof T]-?: Required<Pick<T, K>> }[keyof T]
+);
 
 export interface SignatureData extends InputMap {
     /** Must be exactly 32 bytes */
@@ -36,6 +46,7 @@ export interface FeeData {
 }
 
 export interface SignatureInputs {
+    contract: Address,
     recipient: Address,
     amountToReMint: Hex,
     callData: Hex,
@@ -44,13 +55,7 @@ export interface SignatureInputs {
     encryptedTotalMinted: Hex[],
 }
 
-export interface SignatureInputsWithFee {
-    recipient: Address,
-    amountToReMint: Hex,
-    callData: Hex,
-    callValue: Hex,
-    callCanFail: boolean,
-    encryptedTotalMinted: Hex[],
+export interface SignatureInputsWithFee extends SignatureInputs {
     feeData: FeeData,
 }
 
@@ -168,24 +173,32 @@ export interface RelayInputs {
     signatureInputs: SignatureInputsWithFee,
 }
 
+/**backend per circuit size */
+export type BackendPerSize =  {[key: number]:UltraHonkBackend}
 //functions
 export type CreateRelayerInputsOpts = {
+    fullNode?: PublicClient
     threads?: number;
-    chainId?: bigint;
     callData?: Hex;
     callCanFail?: boolean;
     callValue?: bigint;
     burnAddresses?: Address[];
-    preSyncedTree?: PreSyncedTree;
-    backend?: UltraHonkBackend;
+    /**backend per circuit size */
+    backends?: BackendPerSize;
     deploymentBlock?: bigint;
     blocksPerGetLogsReq?: bigint;
     circuitSize?: number;
+    encryptedBlobLen?: number;
+
+    // cache-able
+    preSyncedTree?: PreSyncedTree;
+
+    chainId?: bigint;
+
     powDifficulty?: Hex;
     reMintLimit?: Hex;
-    maxTreeDepth?: number;
-    encryptedBlobLen?: number;
     circuitSizes?: number[];
+    maxTreeDepth?: number;
 };
 
 export interface BurnAccountProof {
@@ -196,4 +209,14 @@ export interface BurnAccountProof {
 
 export interface FakeBurnAccountProof {
     burnAccount: FakeBurnAccount,
+}
+
+export interface ClientPerChainId {[chainId:Hex]:PublicClient}
+
+export interface WormholeContractConfig {
+    VERIFIER_SIZES: number[],
+    VERIFIERS_PER_SIZE:{[size:number]:Address}
+    POW_DIFFICULTY: Hex,
+    RE_MINT_LIMIT: Hex,
+    MAX_TREE_DEPTH: number
 }

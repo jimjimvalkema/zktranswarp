@@ -334,3 +334,13 @@ export const PreSyncedTreeStringifyableSchema = z.object({
     firstSyncedBlock: HexSchema,
 });
 export type PreSyncedTreeStringifyable = z.infer<typeof PreSyncedTreeStringifyableSchema>;
+
+export const ExportedMerkleTreesSchema = keyValidatedRecord(
+    HexSchema,
+    keyValidatedRecord(
+        AddressSchema,
+        PreSyncedTreeStringifyableSchema
+    )
+);
+
+export type ExportedMerkleTrees = z.infer<typeof ExportedMerkleTreesSchema>;

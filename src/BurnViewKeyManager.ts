@@ -444,7 +444,7 @@ export class BurnViewKeyManager {
         if (idBurnAccount.state === "Importable" || idBurnAccount.state === "Synced") {
             // effectively checks if that nonce is valid. If it's too high errors, too low it just keeps it and wont sync further
             // @TODO test that!
-            await syncBurnAccount(wormholeToken, reCreatedBurnAccount, archiveClient, { maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
+            await syncBurnAccount(reCreatedBurnAccount,wormholeToken.address, archiveClient, { maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
         }
     }
 }

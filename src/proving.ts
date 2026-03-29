@@ -1,6 +1,6 @@
 import { toHex } from "viem"
 import type { Hex, Address, PublicClient } from "viem"
-import type { MerkleData, SpendableBalanceProof, PreSyncedTree, ProofInputs1n, ProofInputs4n, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount } from "./types.js"
+import type { MerkleData, SpendableBalanceProof, PreSyncedTree, ProofInputs1n, ProofInputs4n, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize } from "./types.js"
 import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_SPENT_PADDING } from "./constants.ts"
 import { hashTotalSpentLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
@@ -23,7 +23,7 @@ const circuits: { [k: number]: any } = {
 //import { Fr } from "@aztec/aztec.js"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
 import { assert } from "node:console"
-import { getAllBurnAccounts, getAvailableThreads, getCircuitSize, getCircuitSizesFromContract, hexToU8AsHexLen32, padArray, padWithRandomHex, randomBN254FieldElement } from "./utils.ts"
+import { getAllBurnAccounts, getAvailableThreads, getCircuitSize, getCircuitSizesFromContract, getWormholeTokenContract, hexToU8AsHexLen32, padArray, padWithRandomHex, randomBN254FieldElement } from "./utils.ts"
 import { signPrivateTransfer } from "./signing.ts"
 
 export function formatMerkleProof(merkleProof: LeanIMTMerkleProof<bigint>, maxTreeDepth: number): MerkleData {
@@ -127,8 +127,8 @@ export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddr
 }
 
 export function getHashedInputs(
-    { burnAccount, claimAmount, syncedTree, maxTreeDepth }:
-        { burnAccount: SyncedBurnAccount, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number }) {
+    burnAccount: SyncedBurnAccount, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number 
+   ) {
 
     // --- inclusion proof ---
     // hash leafs
@@ -263,27 +263,28 @@ export function getPrivInputs(
 
 // Overload 1: feeData provided → RelayInputs
 export async function createRelayerInputs(
+    signingEthAccount: Address,
     recipient: Address,
     amount: bigint,
     BurnViewKeyManager: BurnViewKeyManager,
-    wormholeToken: WormholeToken | WormholeTokenTest,
-    archiveClient: PublicClient,
-    ethAccount: Address,
+    wormholeTokenAddress: Address,
+    archiveNode: PublicClient,
     opts: CreateRelayerInputsOpts & { feeData: FeeData }
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
 
 // Overload 2: feeData omitted → SelfRelayInputs
 export async function createRelayerInputs(
+    signingEthAccount: Address,
     recipient: Address,
     amount: bigint,
     BurnViewKeyManager: BurnViewKeyManager,
-    wormholeToken: WormholeToken | WormholeTokenTest,
-    archiveClient: PublicClient,
-    ethAccount: Address,
+    wormholeTokenAddress: Address,
+    archiveNode: PublicClient,
     opts?: CreateRelayerInputsOpts & { feeData?: undefined }
 ): Promise<{ relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
 
 /**
+ * @TODO split up into sync and proof stage, so it's clear what can be done without an archive node
  * Creates the inputs needed to relay a private transfer (either self-relay or via a relayer).
  *
  * Syncs burn accounts, prepares encrypted spend data, signs the transfer, generates a Merkle
@@ -297,7 +298,7 @@ export async function createRelayerInputs(
  * @param recipient           - Address that will receive the re-minted tokens (required).
  * @param BurnViewKeyManager       - The caller's private wallet containing burn accounts and signing keys (required).
  * @param wormholeToken       - Contract instance for the WormholeToken (required).
- * @param archiveClient       - Archive-node viem PublicClient used for syncing and log queries (required).
+ * @param archiveNode       - Archive-node viem PublicClient used for syncing and log queries (required).
  *
  * --- Defaults via RPC call if not set ---
  * @param powDifficulty       - Proof-of-work difficulty. Defaults to on-chain value from `wormholeToken.POW_DIFFICULTY()`.
@@ -325,46 +326,52 @@ export async function createRelayerInputs(
  * --- Circuit constants (do not change unless you know what you're doing) ---
  */
 export async function createRelayerInputs(
+    signingEthAccount: Address,
     recipient: Address,
     amount: bigint,
     BurnViewKeyManager: BurnViewKeyManager,
-    wormholeToken: WormholeToken | WormholeTokenTest,
-    archiveClient: PublicClient,
-    ethAccount: Address,
-    { circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backend, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, encryptedBlobLen = ENCRYPTED_TOTAL_SPENT_PADDING + EAS_BYTE_LEN_OVERHEAD }:
+    wormholeTokenAddress: Address,
+    archiveNode: PublicClient,
+    { fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, encryptedBlobLen = ENCRYPTED_TOTAL_SPENT_PADDING + EAS_BYTE_LEN_OVERHEAD }:
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
     // set defaults
-    powDifficulty ??= await wormholeToken.read.POW_DIFFICULTY()
-    reMintLimit ??= await wormholeToken.read.RE_MINT_LIMIT();
-    circuitSizes ??= await getCircuitSizesFromContract(wormholeToken);
-    chainId ??= BigInt(await archiveClient.getChainId());
-    maxTreeDepth ??= await wormholeToken.read.MAX_TREE_DEPTH()
+    fullNode ??= archiveNode
+    const wormholeTokenFull = getWormholeTokenContract(wormholeTokenAddress,{public:fullNode})
+    powDifficulty ??= await wormholeTokenFull.read.POW_DIFFICULTY()
+    reMintLimit ??= await wormholeTokenFull.read.RE_MINT_LIMIT();
+    circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
+    chainId ??= BigInt(await fullNode.getChainId());
+    maxTreeDepth ??= await wormholeTokenFull.read.MAX_TREE_DEPTH()
     // TODO should be a minimum powDifficulty
-    burnAddresses ??= getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts:[ethAccount],chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }).map((b) => b.burnAddress)
+    burnAddresses ??= getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }).map((b) => b.burnAddress)
     const largestCircuitSize = circuitSizes[circuitSizes.length - 1]
 
     // start this asap so we can resolve once we need it
-    const syncedTreePromise = getSyncedMerkleTree({
-        wormholeToken,
-        publicClient: archiveClient,
+    const syncedTreePromise = getSyncedMerkleTree(
+        wormholeTokenAddress,
+        archiveNode,
         //optional inputs
-        preSyncedTree,
-        deploymentBlock,
-        blocksPerGetLogsReq
-    })
+        {
+            fullNode,
+            preSyncedTree,
+            deploymentBlock,
+            blocksPerGetLogsReq
+        }
+    )
 
     // sync burn accounts
     const syncedPrivateWallet = await syncMultipleBurnAccounts(
-        archiveClient,
-        wormholeToken,
         BurnViewKeyManager,
+        wormholeTokenAddress,
+        archiveNode,
         {
+            fullNode,
             burnAddressesToSync: burnAddresses, //@notice, only syncs these addresses!
             //ethAccounts: [ethAccount]         // we already know which burn addresses, we don't need to filter based on signer account
         }
     )
-    const burnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts:[ethAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }) as SyncedBurnAccount[]
+    const burnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }) as SyncedBurnAccount[]
 
     // select burn accounts for spend. Takes highest balances first
     const { burnAccountsAndAmounts, encryptedTotalMinted } = await prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses: burnAddresses, amount, largestCircuitSize: largestCircuitSize })
@@ -372,6 +379,7 @@ export async function createRelayerInputs(
 
     // format inputs that wil be signed
     let signatureInputs: SignatureInputs | SignatureInputsWithFee = {
+        contract: wormholeTokenAddress,
         recipient: recipient,
         amountToReMint: toHex(amount),
         callData: callData,
@@ -384,13 +392,13 @@ export async function createRelayerInputs(
         signatureInputs = { ...signatureInputs, feeData } as SignatureInputsWithFee
     }
 
-    const allSignatureDataPromise = signPrivateTransfer({
-        BurnViewKeyManager: BurnViewKeyManager,
-        signatureInputs: signatureInputs,
-        chainId: Number(chainId),
-        tokenAddress: wormholeToken.address,
-        ethAccount
-    })
+    const allSignatureDataPromise = signPrivateTransfer(
+        BurnViewKeyManager,
+        signatureInputs,
+        Number(chainId),
+        wormholeTokenAddress,
+        signingEthAccount
+    )
 
     const syncedTree = await syncedTreePromise;
     const { signatureData, signatureHash } = await allSignatureDataPromise;
@@ -406,12 +414,12 @@ export async function createRelayerInputs(
     for (let index = 0; index < circuitSize; index++) {
         if (index < burnAccountsAndAmounts.length) {
             const { burnAccount, amountToClaim } = burnAccountsAndAmounts[index];
-            const { merkleProofs, nullifier, nextTotalSpendNoteHashLeaf } = getHashedInputs({
-                burnAccount: burnAccount,
-                claimAmount: amountToClaim,
-                syncedTree: syncedTree,
-                maxTreeDepth: maxTreeDepth
-            })
+            const { merkleProofs, nullifier, nextTotalSpendNoteHashLeaf } = getHashedInputs(
+                burnAccount,
+                amountToClaim,
+                syncedTree,
+                maxTreeDepth
+            )
 
             // group all this private inclusion proof data
             const burnAccountProof: BurnAccountProof = {
@@ -460,7 +468,7 @@ export async function createRelayerInputs(
     const proofInputs = { ...publicInputs, ...privateInputs } as ProofInputs1n | ProofInputs4n
 
     // make proof!
-    const zkProof = await generateProof({ proofInputs: proofInputs, backend: backend, threads: threads, circuitSizes: circuitSizes })
+    const zkProof = await generateProof(proofInputs,circuitSizes, {backends, threads})
     if (feeData) {
         return {
             relayInputs:
@@ -489,7 +497,7 @@ export async function createRelayerInputs(
     }
 }
 
-export async function getBackend(circuitSize: number, threads?: number) {
+export function getBackend(circuitSize: number, threads?: number) {
     console.log("initializing backend with circuit")
     threads = threads ?? getAvailableThreads()
     console.log({ threads })
@@ -497,10 +505,10 @@ export async function getBackend(circuitSize: number, threads?: number) {
     return new UltraHonkBackend(byteCode, { threads: threads }, { recursive: false });
 }
 
-export async function generateProof({ proofInputs, backend, threads, circuitSizes }: { circuitSizes: number[], threads?: number, proofInputs: ProofInputs1n | ProofInputs4n, backend?: UltraHonkBackend }) {
+export async function generateProof(proofInputs: ProofInputs1n | ProofInputs4n, circuitSizes: number[],{threads, backends}:{backends?: BackendPerSize,threads?: number }={}) {
     const circuitSize = getCircuitSize(proofInputs.burn_data_public.length, circuitSizes)
     console.log("proving with:", { circuitSize, threads })
-    backend = backend ?? await getBackend(circuitSize, threads)
+    const backend = (backends && backends[circuitSize]) ?? getBackend(circuitSize, threads)
 
     const circuitJson = circuits[circuitSize];
     const noir = new Noir(circuitJson as CompiledCircuit);
@@ -513,6 +521,6 @@ export async function generateProof({ proofInputs, backend, threads, circuitSize
 }
 
 export async function verifyProof({ proof, backend, circuitSize = 2 }: { proof: ProofData, backend?: UltraHonkBackend, circuitSize?: number }) {
-    backend = backend ?? await getBackend(circuitSize, undefined)
+    backend = backend ?? getBackend(circuitSize, undefined)
     return await backend.verifyProof(proof, { keccakZK: true })
 }
