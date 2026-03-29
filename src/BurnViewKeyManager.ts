@@ -6,7 +6,7 @@ import type { BurnAccount, PubKeyHex, BurnAccountBase, UnsyncedBurnAccount, Unsy
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, verifyPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
-import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
+import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getWormholeTokenContract, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
 import { BurnAccountSyncDataSchema, ExportedViewKeyDataCombinedSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
@@ -215,7 +215,7 @@ export class BurnViewKeyManager {
      */
     async createBurnAccount(
         { isDeterministic, spendingPubKeyX, ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, difficulty = this.defaults.powDifficulty, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }:
-            { isDeterministic?:boolean,spendingPubKeyX?: Hex, ethAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: bigint, difficulty?: bigint, async?: boolean, viewKeyMessage?: string } = {}
+            { isDeterministic?: boolean, spendingPubKeyX?: Hex, ethAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: bigint, difficulty?: bigint, async?: boolean, viewKeyMessage?: string } = {}
     ) {
         ethAccount ??= (await this.viemWallet.getAddresses())[0]
         if (viewingKeyIndex === undefined) {
@@ -239,6 +239,21 @@ export class BurnViewKeyManager {
         //---------
         const burnAccount = await createBurnAccount({ isDeterministic, ethAccount: ethAccount, viewKeySigMessage: viewKeyMessage, spendingPubKeyX, viewingKeyIndex, viewKeyRoot, powNonce, viewingKey, chainId, difficulty, async })
         this.#addBurnAccount(burnAccount)
+        return burnAccount
+    }
+
+    async getFreshBurnAccount(
+        wormholeTokenAddress: Address, fullNode:PublicClient,
+        { ethAccount, chainId, difficulty }: { ethAccount?: Address, chainId?: bigint, difficulty?: bigint }={}) {
+        const tokenContract = getWormholeTokenContract(wormholeTokenAddress,{public:fullNode})
+        let isUsed: boolean;
+        let burnAccount: UnsyncedBurnAccount;
+        do {
+            burnAccount = await this.createBurnAccount({ ethAccount, chainId, difficulty })
+            const balance = await tokenContract.read.balanceOf([burnAccount.burnAddress])
+            isUsed = balance !== 0n
+
+        } while (isUsed)
         return burnAccount
     }
 
@@ -330,10 +345,10 @@ export class BurnViewKeyManager {
         return allBurnAccounts.map((b) => paranoidMode === false && isSyncedBurnAccount(b) ? toImportableBurnAccount(b) : toRecoverableBurnAccount(b))
     }
 
-    exportViewKeyData(paranoidMode:true ): ExportedViewKeyData<BurnAccountRecoverable>;
-    exportViewKeyData(paranoidMode?:false): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>;
-    exportViewKeyData(paranoidMode:boolean): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>;
-    exportViewKeyData(paranoidMode = false ): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable> {
+    exportViewKeyData(paranoidMode: true): ExportedViewKeyData<BurnAccountRecoverable>;
+    exportViewKeyData(paranoidMode?: false): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>;
+    exportViewKeyData(paranoidMode: boolean): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>;
+    exportViewKeyData(paranoidMode = false): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable> {
         const burnAccounts: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>["burnAccounts"] = {};
         for (const ethAccount of Object.keys(this.privateData.burnAccounts) as Address[]) {
             const ethData = this.privateData.burnAccounts[ethAccount];
@@ -341,7 +356,7 @@ export class BurnViewKeyManager {
             for (const chainId of Object.keys(ethData.burnAccounts) as Hex[]) {
                 burnAccounts[ethAccount].burnAccounts[chainId] = {};
                 for (const difficulty of Object.keys(ethData.burnAccounts[chainId]) as Hex[]) {
-                    const { derived, unknown } =  this.exportBurnAccounts(ethAccount, chainId, difficulty, { paranoidMode: paranoidMode });
+                    const { derived, unknown } = this.exportBurnAccounts(ethAccount, chainId, difficulty, { paranoidMode: paranoidMode });
                     burnAccounts[ethAccount].burnAccounts[chainId][difficulty] = {
                         derivedBurnAccounts: derived,
                         unknownBurnAccounts: unknown
@@ -396,7 +411,7 @@ export class BurnViewKeyManager {
         // recreate the full burn account as much as possible, even if keys are already provided. So we can check every key was correct later
         if (idBurnAccount.derivation === "Derived") {
             reCreatedBurnAccount = await this.createBurnAccount({
-                isDeterministic:true,
+                isDeterministic: true,
                 ethAccount: idBurnAccount.account.ethAccount,
                 chainId: BigInt(idBurnAccount.account.chainId),
                 difficulty: BigInt(idBurnAccount.account.difficulty),
@@ -411,7 +426,7 @@ export class BurnViewKeyManager {
             // viewingKey cant be recreated, so always used from importedBurnAccount. 
             // viewingKeyIndex, viewKeyMessage, does not exist and is omitted. rest is same as above
             reCreatedBurnAccount = await this.createBurnAccount({
-                isDeterministic:false,
+                isDeterministic: false,
                 ethAccount: idBurnAccount.account.ethAccount,
                 chainId: BigInt(idBurnAccount.account.chainId),
                 difficulty: BigInt(idBurnAccount.account.difficulty),
@@ -444,7 +459,7 @@ export class BurnViewKeyManager {
         if (idBurnAccount.state === "Importable" || idBurnAccount.state === "Synced") {
             // effectively checks if that nonce is valid. If it's too high errors, too low it just keeps it and wont sync further
             // @TODO test that!
-            await syncBurnAccount(reCreatedBurnAccount,wormholeToken.address, archiveClient, { maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
+            await syncBurnAccount(reCreatedBurnAccount, wormholeToken.address, archiveClient, { maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
         }
     }
 }

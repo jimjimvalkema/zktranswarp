@@ -8,13 +8,13 @@ import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { LeanIMT } from "@zk-kit/lean-imt";
 import { poseidon2IMTHashFunc } from "./syncing.ts";
 import { ExportedMerkleTreesSchema, PreSyncedTreeStringifyableSchema, type ExportedMerkleTrees } from "./schemas.ts";
-import { relayTx, selfRelayTx, superSafeBurn } from "./transact.ts";
+import { burn, relayTx, selfRelayTx, superSafeBurn } from "./transact.ts";
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.ts"
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import { createRelayerInputs } from "./proving.ts";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
 import { boolean, number } from "zod";
-import { getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
+import { getAllBurnAccounts, getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 
@@ -23,8 +23,8 @@ export class BurnWallet {
     readonly viemWallet: WalletClient;
     readonly archiveNode: ClientPerChainId;
     readonly fullNode: ClientPerChainId
-    readonly contractConfig: { [chainId: Hex]:{[Address: Address]: WormholeContractConfig} } = {};
-    merkleTrees:  { [chainId: Hex]:{[Address: Address]: PreSyncedTree} } = {};
+    readonly contractConfig: { [chainId: Hex]: { [Address: Address]: WormholeContractConfig } } = {};
+    merkleTrees: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } } = {};
 
     /**
      * @notice if a user switches their chain, archiveNode and fullNode wont switch with it
@@ -42,7 +42,7 @@ export class BurnWallet {
     constructor(
         viemWallet: WalletClient, powDifficulty: bigint, archiveNode: ClientPerChainId,
         { fullNode, merkleTrees, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId }:
-            { fullNode?: ClientPerChainId, merkleTrees?: { [chainId: Hex]:{[Address: Address]: PreSyncedTree} }, walletDataImport?: string, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint } = {}
+            { fullNode?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, walletDataImport?: string, viewKeySigMessage?: string, powDifficulty?: bigint, acceptedChainIds?: bigint[], chainId?: bigint } = {}
     ) {
         this.viemWallet = viemWallet;
         this.archiveNode = archiveNode //?? fullNode  ?? walletAsPublicClient;
@@ -57,49 +57,53 @@ export class BurnWallet {
         )
     }
 
-    async #getMerkleTree(address:Address, chainId?:number) {
+    async defaultSigner() {
+        return (await this.viemWallet.getAddresses())[0]
+    }
+
+    async #getMerkleTree(address: Address, chainId?: number) {
         chainId ??= await this.viemWallet.getChainId()
         const chainIdHex = toHex(chainId)
         this.merkleTrees[chainIdHex] ??= {}
         // TODO firstSyncedBlock at 0 might give issues
         console.warn("firstSyncedBlock is set at 0, this might cause issues?? TODO")
-        this.merkleTrees[chainIdHex][address] ??= {firstSyncedBlock:0n,lastSyncedBlock:0n,tree:new LeanIMT(poseidon2IMTHashFunc)}
+        this.merkleTrees[chainIdHex][address] ??= { firstSyncedBlock: 0n, lastSyncedBlock: 0n, tree: new LeanIMT(poseidon2IMTHashFunc) }
         return this.merkleTrees[chainIdHex][address]
     }
 
     exportMerkleTrees() {
-        const exportedTree:{[chainId:Hex]:{[address:Address]:PreSyncedTreeStringifyable}} = {};
+        const exportedTree: { [chainId: Hex]: { [address: Address]: PreSyncedTreeStringifyable } } = {};
         for (const chainId of Object.keys(this.merkleTrees)) {
             exportedTree[chainId as Hex] = {}
             for (const address of Object.keys(this.merkleTrees[chainId as Hex])) {
                 const tree = this.merkleTrees[chainId as Hex][address as Address]
                 exportedTree[chainId as Hex][address as Address] = {
-                    firstSyncedBlock:toHex(tree.firstSyncedBlock),
-                    lastSyncedBlock:toHex(tree.lastSyncedBlock),
-                    exportedNodes:tree.tree.export()
+                    firstSyncedBlock: toHex(tree.firstSyncedBlock),
+                    lastSyncedBlock: toHex(tree.lastSyncedBlock),
+                    exportedNodes: tree.tree.export()
                 }
             }
         }
         return exportedTree
     }
 
-    async #getContractConfig(address:Address, chainId?:number) {
+    async #getContractConfig(address: Address, chainId?: number) {
         chainId ??= await this.viemWallet.getChainId()
         const chainIdHex = toHex(chainId)
         this.contractConfig[chainIdHex] ??= {}
-        const wormholeTokenFull = await this.#getTokenContract(address,{chainId, wallet:false, nodeType:"full"})
-        if(this.contractConfig[chainIdHex][address] === undefined) {
+        const wormholeTokenFull = await this.#getTokenContract(address, { chainId, wallet: false, nodeType: "full" })
+        if (this.contractConfig[chainIdHex][address] === undefined) {
             const powDifficulty = wormholeTokenFull.read.POW_DIFFICULTY()
             const reMintLimit = wormholeTokenFull.read.RE_MINT_LIMIT();
             const maxTreeDepth = wormholeTokenFull.read.MAX_TREE_DEPTH();
 
             const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull);
-            const verifiersEntries = Promise.all((await verifierSizes).map(async (size)=>[size, await wormholeTokenFull.read.VERIFIER_SIZES([BigInt(size)])]))
+            const verifiersEntries = Promise.all((await verifierSizes).map(async (size) => [size, await wormholeTokenFull.read.VERIFIER_SIZES([BigInt(size)])]))
 
-            const config:WormholeContractConfig = {
+            const config: WormholeContractConfig = {
                 VERIFIER_SIZES: await verifierSizes,
                 VERIFIERS_PER_SIZE: Object.fromEntries(await verifiersEntries),
-                POW_DIFFICULTY: padHex(await powDifficulty, {size:32}),
+                POW_DIFFICULTY: padHex(await powDifficulty, { size: 32 }),
                 RE_MINT_LIMIT: await reMintLimit,
                 MAX_TREE_DEPTH: await maxTreeDepth,
             }
@@ -108,19 +112,19 @@ export class BurnWallet {
         return this.contractConfig[chainIdHex][address]
     }
     // uses wallet object to return chainId
-    async #getPublicClient({type="archive",chainId}:{type?:"archive"|"full",chainId?:number}={}) {
+    async #getPublicClient({ type = "archive", chainId }: { type?: "archive" | "full", chainId?: number } = {}) {
         chainId ??= await this.viemWallet.getChainId()
-        if(type === "archive") {
+        if (type === "archive") {
             return this.archiveNode[toHex(chainId)]
         } else {
             return this.fullNode[toHex(chainId)]
         }
     }
-    
 
-    async #getTokenContract(address: Address, {chainId, wallet = false, nodeType="archive" }: {chainId?:number, wallet?: boolean, nodeType?: "archive"|"full" } = {}): Promise<WormholeToken> {
+
+    async #getTokenContract(address: Address, { chainId, wallet = false, nodeType = "archive" }: { chainId?: number, wallet?: boolean, nodeType?: "archive" | "full" } = {}): Promise<WormholeToken> {
         chainId ??= await this.viemWallet.getChainId()
-        const publicClient = await this.#getPublicClient({type:nodeType});
+        const publicClient = await this.#getPublicClient({ type: nodeType });
         const contract = getContract({
             address: address,
             abi: WormholeTokenArtifact.abi as WormholeToken$Type["abi"],
@@ -133,7 +137,7 @@ export class BurnWallet {
     }
 
     async connect(ethAccount?: Address) {
-        ethAccount ??= (await this.viemWallet.getAddresses())[0]
+        ethAccount ??= await this.defaultSigner()
         return await this.burnViewKeyManager.connect(ethAccount)
     }
 
@@ -218,18 +222,18 @@ export class BurnWallet {
     }
 
     // TODO assumes imported tree is most up to date
-    importMerkleTrees(importedTrees:ExportedMerkleTrees) {
+    importMerkleTrees(importedTrees: ExportedMerkleTrees) {
         const parsedTrees = ExportedMerkleTreesSchema.parse(importedTrees)
         for (const chainId of Object.keys(parsedTrees)) {
             for (const address of Object.keys(parsedTrees[chainId])) {
                 const parsedTree = parsedTrees[chainId][address]
-                const recoveredTree = LeanIMT.import(poseidon2IMTHashFunc,parsedTree.exportedNodes)
+                const recoveredTree = LeanIMT.import(poseidon2IMTHashFunc, parsedTree.exportedNodes)
                 this.merkleTrees[chainId as Hex][address as Address] = {
-                    firstSyncedBlock:BigInt(parsedTree.firstSyncedBlock),
-                    lastSyncedBlock:BigInt(parsedTree.lastSyncedBlock),
-                    tree:recoveredTree
+                    firstSyncedBlock: BigInt(parsedTree.firstSyncedBlock),
+                    lastSyncedBlock: BigInt(parsedTree.lastSyncedBlock),
+                    tree: recoveredTree
                 }
-            } 
+            }
         }
     }
 
@@ -268,7 +272,7 @@ export class BurnWallet {
         recipient: Address,
         amount: bigint,
         wormholeTokenAddress: Address,
-        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "difficulty" | "maxTreeDepth" | "chainId"> & {chainId:number, feeData: FeeData }
+        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "difficulty" | "maxTreeDepth" | "chainId"> & { chainId: number, feeData: FeeData }
     ) {
         opts.chainId ??= await this.viemWallet.getChainId()
         const contractConfig = await this.#getContractConfig(wormholeTokenAddress, opts.chainId)
@@ -278,33 +282,24 @@ export class BurnWallet {
             amount,
             this.burnViewKeyManager,
             wormholeTokenAddress,
-            await this.#getPublicClient({type:"archive"}),
-            { 
-                ...opts, 
+            await this.#getPublicClient({ type: "archive" }),
+            {
+                ...opts,
                 // defaulted config
-                fullNode: await this.#getPublicClient({type:"full"}),
+                fullNode: await this.#getPublicClient({ type: "full" }),
 
                 //-- cached --
-                preSyncedTree:await this.#getMerkleTree(wormholeTokenAddress, opts.chainId),
-                chainId:BigInt(opts.chainId),
+                preSyncedTree: await this.#getMerkleTree(wormholeTokenAddress, opts.chainId),
+                chainId: BigInt(opts.chainId),
 
                 // contractConfig
-                powDifficulty:contractConfig.POW_DIFFICULTY, 
-                reMintLimit:contractConfig.RE_MINT_LIMIT,
-                circuitSizes:contractConfig.VERIFIER_SIZES,
-                maxTreeDepth:Number(contractConfig.MAX_TREE_DEPTH),
+                powDifficulty: contractConfig.POW_DIFFICULTY,
+                reMintLimit: contractConfig.RE_MINT_LIMIT,
+                circuitSizes: contractConfig.VERIFIER_SIZES,
+                maxTreeDepth: Number(contractConfig.MAX_TREE_DEPTH),
                 //-----------
             }
-
         )
-    //         preSyncedTree?: PreSyncedTree;
-
-    // chainId?: bigint;
-
-    // powDifficulty?: Hex;
-    // reMintLimit?: Hex;
-    // circuitSizes?: number[];
-    // maxTreeDepth?: number;
     }
 
     /**
@@ -314,7 +309,7 @@ export class BurnWallet {
     async selfRelayTx(selfRelayInputs: SelfRelayInputs) {
         const contract = await this.#getTokenContract(
             selfRelayInputs.signatureInputs.contract,
-            { wallet: true, nodeType:"full" }
+            { wallet: true, nodeType: "full" }
         )
         await selfRelayTx(selfRelayInputs, this.viemWallet, contract)
     }
@@ -326,12 +321,56 @@ export class BurnWallet {
     async relayTx(relayInputs: RelayInputs) {
         const contract = await this.#getTokenContract(
             relayInputs.signatureInputs.contract,
-            { wallet: true, nodeType:"full"}
+            { wallet: true, nodeType: "full" }
         )
         await relayTx(relayInputs, this.viemWallet, contract)
     }
 
     /**
+     * for when you just want to burn without thinking about it
+     * or when you need to receive some change for relayer fees, without revealing who you are.
+     * @notice this.burnViewKeyManager.getFreshBurnAccount checks if it's fresh by checking the balance, but only on one chain and balance of one coin. It is not fool proof. Maybe we need derivation path for one time use addresses
+     * @param wormholeTokenAddress 
+     * @param ethSigningAddress 
+     * @param param2 
+     * @returns 
+     */
+    async getFreshBurnAccount(wormholeTokenAddress: Address, { ethSigningAddress, chainId }: { ethSigningAddress?: Address, chainId?: number } = {}) {
+        ethSigningAddress ??= await this.defaultSigner()
+        chainId ??= await this.viemWallet.getChainId()
+        return await this.burnViewKeyManager.getFreshBurnAccount(
+            wormholeTokenAddress,
+            await this.#getPublicClient({ type: "full", chainId: chainId }),
+            {
+                chainId: BigInt(chainId),
+                difficulty: BigInt((await this.#getContractConfig(wormholeTokenAddress, chainId)).POW_DIFFICULTY)
+            }
+        )
+    }
+
+    // TODO part of this is might need to go into viewKeyManager
+    /**
+     * 
+     */
+    async #resolveBurnAccount(burnAddress:Address, wormholeTokenAddress: Address, chainId: number): Promise<BurnAccount> {
+        // if ("viewingKey" in burnAccount) return burnAccount as BurnAccount;
+        // const { burnAddress } = burnAccount
+        const difficulty = BigInt((await this.#getContractConfig(wormholeTokenAddress, chainId)).POW_DIFFICULTY)
+        const allBurnAccounts = getAllBurnAccounts(
+            this.burnViewKeyManager.privateData,
+            {
+                difficulties: [difficulty],
+                chainIds: [BigInt(chainId)],
+                ethAccounts: undefined
+            }
+        )
+        const foundBurnAccount = allBurnAccounts.find((b) => b.burnAddress === burnAddress)
+        if (!foundBurnAccount) throw new Error(`BurnAddress:${burnAddress} not in wallet, please provide the full burnAccount or use a regular transfer if you know what you are doing.`)
+        return foundBurnAccount
+    }
+
+    /**
+     * @notice if no burnAccount or burnAddress provided, will make a freshAccount for extra privacy
      * @TODO cache difficulty,circuitSizes,reMintLimit,maxTreeDepth per contract address and other contract parameters
      * @TODO do chain assertions. Every time contract.write.function(args[],{account,chain}).  
      * use const chainId = viemWallet.chain?.id !== undefined ? BigInt(viemWallet.chain.id) : BigInt(await viemWallet.getChainId())
@@ -339,21 +378,24 @@ export class BurnWallet {
      * @TODO 
      */
     async superSafeBurn(
-        burnAccount: BurnAccount, amount: bigint, wormholeTokenAddress: Address,
-        { chainId, ethSigningAddress, difficulty, reMintLimit, maxTreeDepth }: {chainId?:number, ethSigningAddress?: Address, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
+        amount: bigint, wormholeTokenAddress: Address, burnAccount?: BurnAccount | { burnAddress: Address },
+        { chainId, ethSigningAddress }: { chainId?: number, ethSigningAddress?: Address } = {}
     ) {
         chainId ??= await this.viemWallet.getChainId()
-        ethSigningAddress ??= (await this.viemWallet.getAddresses())[0]
-        const contractConfig = await this.#getContractConfig(wormholeTokenAddress, chainId)
-        //burnAccount: BurnAccount, amount: bigint, wormholeTokenAddress: Address, wallet:WalletClient,fullNode:PublicClient, account: Address,
-        await superSafeBurn(
-            burnAccount, amount, wormholeTokenAddress, 
-            this.viemWallet, await this.#getPublicClient({type:"full"}), ethSigningAddress,
-            { 
-                difficulty:BigInt(contractConfig.POW_DIFFICULTY), 
-                reMintLimit:BigInt(contractConfig.RE_MINT_LIMIT), 
-                maxTreeDepth:Number(contractConfig.MAX_TREE_DEPTH) 
-            }
-        )
+        burnAccount ??= await this.getFreshBurnAccount(wormholeTokenAddress, { ethSigningAddress, chainId })
+
+        const [fullBurnAccount, contractConfig, fullNode] = await Promise.all([
+            // makes sure to retrieve a full burnAccount from viewKey manager, if only {burnAddress} is present
+            ("viewingKey" in burnAccount) ? burnAccount : this.#resolveBurnAccount(burnAccount.burnAddress, wormholeTokenAddress, chainId),
+            this.#getContractConfig(wormholeTokenAddress, chainId),
+            this.#getPublicClient({ type: "full" }),
+        ])
+        ethSigningAddress ??= await this.defaultSigner()
+
+        await superSafeBurn(fullBurnAccount, amount, wormholeTokenAddress, this.viemWallet, fullNode, ethSigningAddress, {
+            difficulty: BigInt(contractConfig.POW_DIFFICULTY),
+            reMintLimit: BigInt(contractConfig.RE_MINT_LIMIT),
+            maxTreeDepth: Number(contractConfig.MAX_TREE_DEPTH)
+        })
     }
 }
