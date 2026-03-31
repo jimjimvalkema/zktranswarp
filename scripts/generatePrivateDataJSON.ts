@@ -86,10 +86,10 @@ describe("Token", async function () {
             const amountFreeTokens = await wormholeTokenAlice.read.amountFreeTokens()
             await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
 
-            const alicePrivate = new BurnWallet(alice, powDifficulty, { acceptedChainIds: [BigInt(await publicClient.getChainId())] })
+            const alicePrivate = new BurnWallet(alice, { acceptedChainIds: [BigInt(await publicClient.getChainId())] })
             const amountBurnAddresses = 200
 
-            const burnAccounts: UnsyncedBurnAccount[] = await alicePrivate.createBurnAccountsBulk(amountBurnAddresses, { async: true })
+            const burnAccounts: UnsyncedBurnAccount[] = await alicePrivate.createBurnAccountsBulk(wormholeToken.address, amountBurnAddresses, { async: true })
             const __dirname = dirname(fileURLToPath(import.meta.url));
             const path =  join(__dirname, '../test/data/privateDataAlice.json')
             console.log({path})

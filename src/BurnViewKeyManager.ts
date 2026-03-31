@@ -221,8 +221,7 @@ export class BurnViewKeyManager {
         { isDeterministic, spendingPubKeyX, ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }:
             { isDeterministic?: boolean, spendingPubKeyX?: Hex, ethAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: bigint, async?: boolean, viewKeyMessage?: string } = {}
     ) {
-        console.log({ethAccount})
-        ethAccount ??= (await this.viemWallet.getAddresses())[0]
+        ethAccount ??= this.viemWallet.account?.address as Address
         if (viewingKeyIndex === undefined) {
             viewingKeyIndex = this.privateData.burnAccounts[ethAccount].detViewKeyCounter
             this.privateData.burnAccounts[ethAccount].detViewKeyCounter += 1
@@ -295,7 +294,7 @@ export class BurnViewKeyManager {
         { ethAccount, startingViewKeyIndex, chainId, async = false }:
             { ethAccount?: Address, startingViewKeyIndex?: number, async?: boolean, chainId?: bigint } = {}
     ) {
-        ethAccount ??= (await this.viemWallet.getAddresses())[0]
+        ethAccount ??= this.viemWallet.account?.address as Address
         chainId ??= this.defaults.chainId
         this.#createBurnAccountsKeys({ chainId, ethAccount, difficulty })
         startingViewKeyIndex ??= this.privateData.burnAccounts[ethAccount].detViewKeyCounter
@@ -384,7 +383,7 @@ export class BurnViewKeyManager {
      */
     async importViewKeyWalletData(
         importedViewKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>, contractAddress: Address, archiveClient: PublicClient,
-        { forceReSign = true, forcePow = false, async = false,fullNode }: { forceReSign?: boolean, forcePow?: boolean, async?: boolean, fullNode?:PublicClient } = {}
+        { forceReSign = true, forcePow = false, async = false, fullNode }: { forceReSign?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient } = {}
     ) {
         fullNode ??= archiveClient;
         this.privateData.detViewKeyRoot = importedViewKeyData.detViewKeyRoot
@@ -396,7 +395,7 @@ export class BurnViewKeyManager {
             // only if the count is higher update it
             this.privateData.burnAccounts[ethAccount] ??= {
                 detViewKeyCounter: importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter,
-                burnAccounts:{}
+                burnAccounts: {}
             }
             if (this.privateData.burnAccounts[ethAccount].detViewKeyCounter < importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter) {
                 this.privateData.burnAccounts[ethAccount].detViewKeyCounter = importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter
@@ -414,7 +413,7 @@ export class BurnViewKeyManager {
      * @param param3 
      */
     async importBurnAccount(importedBurnAccount: AnyBurnAccount, contractAddress: Address, archiveNode: PublicClient,
-        { forceReSign = true, forcePow = false, async = false, fullNode }: {fullNode?:PublicClient, forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
+        { forceReSign = true, forcePow = false, async = false, fullNode }: { fullNode?: PublicClient, forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
     ) {
         fullNode ??= archiveNode
         const idBurnAccount = identifyBurnAccount(importedBurnAccount);
@@ -474,7 +473,7 @@ export class BurnViewKeyManager {
         if (idBurnAccount.state === "Importable" || idBurnAccount.state === "Synced") {
             // effectively checks if that nonce is valid. If it's too high errors, too low it just keeps it and wont sync further
             // @TODO test that!
-            await syncBurnAccount(reCreatedBurnAccount, contractAddress, archiveNode, {fullNode, maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
+            await syncBurnAccount(reCreatedBurnAccount, contractAddress, archiveNode, { fullNode, maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
         }
     }
 }

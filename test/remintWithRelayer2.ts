@@ -101,6 +101,9 @@ describe("Token", async function () {
             const reMintRecipient = bob.account.address
             const aliceRefundBurnAccount = await aliceBurnWallet.createBurnAccount(wormholeToken.address, { viewingKeyIndex: 0 })
             // ---------------------------------------------
+            const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
+            console.log({ contractConfig })
+
 
             const decimalsToken = await wormholeToken.read.decimals()
             // TODO maybe add this to contract and BurnWallet.#getContractConfig? Or move to constants.ts!!!
@@ -182,25 +185,12 @@ describe("Token", async function () {
                 //const reMintTx = await relayerBurnWallet.relayTx(proof)
                 const reMintTx = await relayTx(proof, relayer)
                 const txReceipt = await publicClient.getTransactionReceipt({ hash: reMintTx });
-                console.log({
-                    gasCost: txReceipt.gasUsed,
-                    effectiveGasPrice: txReceipt.effectiveGasPrice,
-                    estimatedPriorityFee, estimatedGasCost
-                })
                 const logs = parseEventLogs({
                     abi: wormholeTokenAbi,
                     logs: txReceipt.logs,
                     eventName: "Transfer"
                 })
                 const relayerAddress = relayer.account.address
-
-                console.log({
-                    relayerAccountAddress: relayer.account.address,
-                    relayerGetAddresses: relayerAddress,
-                    feeDataRelayerAddress: feeData.relayerAddress,
-                    match: relayer.account.address === relayerAddress
-                })
-
                 const recipientReceived = logs.find((l) => getAddress(l.args.to) === getAddress(reMintRecipient))
                 const relayerReceived = logs.find((l) => getAddress(l.args.to) === getAddress(relayerAddress))
                 const refundReceived = logs.find((l) => getAddress(l.args.to) === getAddress(aliceRefundBurnAccount.burnAddress))
@@ -212,14 +202,6 @@ describe("Token", async function () {
                 expectedRelayerBalance += relayerReceived!.args.value
                 expectedRefundBalance += refundReceived!.args.value
                 reMintTxs.push(reMintTx)
-                const unexplained = logs.filter(l =>
-                    getAddress(l.args.to) !== getAddress(reMintRecipient) &&
-                    getAddress(l.args.to) !== getAddress(relayerAddress) &&
-                    getAddress(l.args.to) !== getAddress(aliceRefundBurnAccount.burnAddress)
-                )
-                console.log({ unexplained })
-
-
             }
 
             const balanceBobPublic = await wormholeTokenAlice.read.balanceOf([bob.account.address])

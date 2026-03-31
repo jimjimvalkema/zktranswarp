@@ -84,8 +84,8 @@ describe("Token", async function () {
     describe("Token", async function () {
         it("Should transfer", async function () {
             const chainId = await publicClient.getChainId()
-            const alicePrivate = new BurnWallet(alice, {archiveNodes:{[chainId]:publicClient}, acceptedChainIds: [BigInt(chainId)] })
-            const aliceBurnAccount = await alicePrivate.createBurnAccount(wormholeToken.address,{ viewingKeyIndex: 0 })
+            const alicePrivate = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [BigInt(chainId)] })
+            const aliceBurnAccount = await alicePrivate.createBurnAccount(wormholeToken.address, { viewingKeyIndex: 0 })
 
             let totalAmountInserts = 0
             const startIndex = 2
@@ -135,10 +135,13 @@ describe("Token", async function () {
             // acceptedChainIds defaults to [1n], but our chainId is 31337 so we need to set it.
             // archiveNodes will default to the node inside the client (`alice`), but that is generally a bad idea in prod since those are heavily rate limited note even archive clients
             const chainId = await publicClient.getChainId()
-            const aliceBurnWallet = new BurnWallet(alice, {archiveNodes:{[chainId]:publicClient}, acceptedChainIds: [BigInt(chainId)] })
+            const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [BigInt(chainId)] })
             const reMintRecipient = bob.account.address
             // ---------------------------------------------
-            
+            const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
+            console.log({ contractConfig })
+
+
 
             const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
             await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
@@ -149,7 +152,7 @@ describe("Token", async function () {
             // PoW nonce hashing is with workers so can be done in parallel!
             // but we did importWallet with wallet data that is export with {paranoidMode:false} 
             // and we said {startingViewKeyIndex:0}, so it will find those accounts already imported with pow already done
-            const aliceBurnAccounts = await aliceBurnWallet.createBurnAccountsBulk(wormholeToken.address,amountOfBurnAccounts, { startingViewKeyIndex: 0 })
+            const aliceBurnAccounts = await aliceBurnWallet.createBurnAccountsBulk(wormholeToken.address, amountOfBurnAccounts, { startingViewKeyIndex: 0 })
 
 
             const claimableBurnAddress = aliceBurnAccounts.map((b) => b.burnAddress);
@@ -174,12 +177,12 @@ describe("Token", async function () {
                 // await aliceBurnWallet.syncTree(wormholeToken.address)  
                 const proof = await aliceBurnWallet.proofReMint(
                     reMintRecipient,
-                    reMintAmount, 
+                    reMintAmount,
                     wormholeToken.address,
-                    { 
+                    {
                         burnAddresses: claimableBurnAddress,
-                        signingEthAccount:alice.account.address,
-                        threads:provingThreads, // test breaks if we set this higher then 1, defaults to max
+                        signingEthAccount: alice.account.address,
+                        threads: provingThreads, // test breaks if we set this higher then 1, defaults to max
                         circuitSize: CIRCUIT_SIZE // forces to use that size, even if smaller circuits also work, defaults to lowest
                     }
                 )
@@ -214,7 +217,7 @@ describe("Token", async function () {
             }
             // test wallet imports TODO move this
             const walletExport = aliceBurnWallet.exportWallet({ paranoidMode: false, merkleTree: false })
-            const alicePrivate2 = new BurnWallet(alice, {archiveNodes:{[chainId]:publicClient}, acceptedChainIds: [BigInt(chainId)] })
+            const alicePrivate2 = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [BigInt(chainId)] })
             await alicePrivate2.importWallet(walletExport, wormholeToken.address)
         })
     })

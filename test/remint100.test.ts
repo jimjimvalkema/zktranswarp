@@ -134,7 +134,6 @@ describe("Token", async function () {
                 // await aliceBurnWallet.syncAccounts(wormholeToken.address)
                 // await aliceBurnWallet.syncTree(wormholeToken.address)
                 const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
-                console.log({ contractConfig })
                 const proof = await aliceBurnWallet.proofReMint(
                     reMintRecipient,
                     reMintAmount,
@@ -227,7 +226,6 @@ describe("Token", async function () {
                 // await aliceBurnWallet.syncAccounts(wormholeToken.address)
                 // await aliceBurnWallet.syncTree(wormholeToken.address)
                 const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
-                console.log({ contractConfig })
                 const proof = await aliceBurnWallet.proofReMint(
                     reMintRecipient,
                     reMintAmount,
@@ -284,7 +282,8 @@ describe("Token", async function () {
             const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [BigInt(chainId)] })
             const reMintRecipient = bob.account.address
             // ---------------------------------------------
-
+            const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
+            console.log({ contractConfig })
 
             const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
             await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
@@ -318,8 +317,6 @@ describe("Token", async function () {
                 // do in steps, uis will do at as well. although they should consider doing it concurrently!!!
                 // await aliceBurnWallet.syncAccounts(wormholeToken.address)
                 // await aliceBurnWallet.syncTree(wormholeToken.address)
-                const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
-                console.log({ contractConfig })
                 const proof = await aliceBurnWallet.proofReMint(
                     reMintRecipient,
                     reMintAmount,

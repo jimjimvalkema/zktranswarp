@@ -328,7 +328,7 @@ export class BurnWallet {
     async importWallet(
         json: string,
         contractAddress: Address,
-        { merkleTrees = true, viewKeyData = true, chainId }: { merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number } = {}
+        { merkleTrees = true, viewKeyData = true, forceReSign = true, forcePow = false, chainId }: { forceReSign?: boolean, forcePow?: boolean, merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number } = {}
     ) {
         const parsed = JSON.parse(json) as { merkleTrees: ExportedMerkleTrees, privateData: ExportedViewKeyData }
         const archiveNode = await this.#getPublicClient({ type: "archive", chainId })
@@ -339,7 +339,7 @@ export class BurnWallet {
         }
 
         if (parsed.privateData && viewKeyData) {
-            await this.burnViewKeyManager.importViewKeyWalletData(parsed.privateData, contractAddress, archiveNode, { fullNode })
+            await this.burnViewKeyManager.importViewKeyWalletData(parsed.privateData, contractAddress, archiveNode, { fullNode, forceReSign, forcePow })
         }
     }
 
