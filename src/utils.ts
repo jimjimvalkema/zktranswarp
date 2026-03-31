@@ -97,15 +97,24 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
     for (const ethAccount of ethAccounts) {
         for (const chainId of selectedChainIds) {
             // select all difficulties if selectedDifficulties was not set
-            const difficulties = selectedDifficulties ?? Object.keys(burnAccountsStorage[ethAccount].burnAccounts[chainId]) as Hex[];
-            for (const difficulty of difficulties) {
-                if (detBurnAccount) {
-                    burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].derivedBurnAccounts]
+            // idk why but on one call ethAccount is a existing account, the other it's not
+            //throw new Error("aa")
+            // at syncMultipleBurnAccounts it works
+
+            if (burnAccountsStorage[ethAccount].burnAccounts[chainId]) {
+                const difficulties = selectedDifficulties ?? Object.keys(burnAccountsStorage[ethAccount].burnAccounts[chainId]) as Hex[];
+                for (const difficulty of difficulties) {
+                    if (detBurnAccount) {
+                        burnAccounts = [...burnAccounts, ...burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].derivedBurnAccounts]
+                    }
+                    if (nonDetBurnAccounts) {
+                        burnAccounts = [...burnAccounts, ...Object.values(burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts)] as UnknownBurnAccount[]
+                    }
                 }
-                if (nonDetBurnAccounts) {
-                    burnAccounts = [...burnAccounts, ...Object.values(burnAccountsStorage[ethAccount].burnAccounts[chainId][difficulty].unknownBurnAccounts)] as UnknownBurnAccount[]
-                }
+            } else {
+                console.warn(`burnAccountsStorage[ethAccount].burnAccounts[chainId] was undefined TODO figure out if that is bug? ethAccount:${ethAccount}, chainId:${chainId}`)
             }
+
         }
     }
 
@@ -140,9 +149,8 @@ export function getAllBurnAccounts(privateData: FullViewKeyData,
 
 // TODO move this into BurnViewKeyManager
 // it requires every function that requires a class as input, should just use `this` instead
-export function getDeterministicBurnAccounts(burnWallet: BurnViewKeyManager, ethAccount: Address,
-    { difficulty = burnWallet.defaults.powDifficulty, chainId = burnWallet.defaults.chainId }:
-        { difficulty?: bigint, chainId?: bigint } = {}
+export function getDeterministicBurnAccounts(burnWallet: BurnViewKeyManager, ethAccount: Address, chainId: bigint, difficulty: bigint
+
 
 ): BurnAccount[] {
     const difficultyPadded = toHex(difficulty, { size: 32 })

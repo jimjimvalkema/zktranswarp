@@ -211,7 +211,7 @@ export interface FakeBurnAccountProof {
     burnAccount: FakeBurnAccount,
 }
 
-export interface ClientPerChainId {[chainId:Hex]:PublicClient}
+export interface ClientPerChainId {[chainId:number]:PublicClient}
 
 export interface WormholeContractConfig {
     VERIFIER_SIZES: number[],

@@ -116,7 +116,14 @@ export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddr
         }
     }
     if (amountLeft !== 0n) {
-        throw new Error(`not enough balances in selected burn accounts, short of ${Number(amountLeft)}, selected burn accounts: ${sortedBurnAccounts}`)
+        throw new Error(`not enough balances in selected burn accounts, short of ${Number(amountLeft)}, selected burn accounts: ${JSON.stringify(sortedBurnAccounts.map((b) => {
+            return {
+                accountNonce: b.accountNonce,
+                totalBurned: b.totalBurned,
+                totalSpent: b.totalSpent,
+                spendableBalance: b.spendableBalance
+            }
+        }))}`)
     }
 
     //console.log(`burn accounts selected: \n${burnAccountsAndAmounts.map((b) => `${b.burnAccount.burnAddress},spendable:${b.burnAccount.spendableBalance},burned:${b.burnAccount.totalBurned},amountToBeClaimed:${b.amountToClaim}\n`)}`)
@@ -127,8 +134,8 @@ export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddr
 }
 
 export function getHashedInputs(
-    burnAccount: SyncedBurnAccount, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number 
-   ) {
+    burnAccount: SyncedBurnAccount, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number
+) {
 
     // --- inclusion proof ---
     // hash leafs
@@ -280,7 +287,7 @@ export async function createRelayerInputs(
     BurnViewKeyManager: BurnViewKeyManager,
     wormholeTokenAddress: Address,
     archiveNode: PublicClient,
-    opts?: CreateRelayerInputsOpts & { feeData?: undefined }
+    opts?: CreateRelayerInputsOpts
 ): Promise<{ relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
 
 /**
@@ -337,7 +344,7 @@ export async function createRelayerInputs(
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
     // set defaults
     fullNode ??= archiveNode
-    const wormholeTokenFull = getWormholeTokenContract(wormholeTokenAddress,{public:fullNode})
+    const wormholeTokenFull = getWormholeTokenContract(wormholeTokenAddress, { public: fullNode })
     powDifficulty ??= await wormholeTokenFull.read.POW_DIFFICULTY()
     reMintLimit ??= await wormholeTokenFull.read.RE_MINT_LIMIT();
     circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
@@ -348,7 +355,7 @@ export async function createRelayerInputs(
     const largestCircuitSize = circuitSizes[circuitSizes.length - 1]
 
     // start this asap so we can resolve once we need it
-    const syncedTreePromise = getSyncedMerkleTree(
+    const syncedTreePromise = await getSyncedMerkleTree(
         wormholeTokenAddress,
         archiveNode,
         //optional inputs
@@ -392,7 +399,7 @@ export async function createRelayerInputs(
         signatureInputs = { ...signatureInputs, feeData } as SignatureInputsWithFee
     }
 
-    const allSignatureDataPromise = signPrivateTransfer(
+    const allSignatureDataPromise = await signPrivateTransfer(
         BurnViewKeyManager,
         signatureInputs,
         Number(chainId),
@@ -468,7 +475,7 @@ export async function createRelayerInputs(
     const proofInputs = { ...publicInputs, ...privateInputs } as ProofInputs1n | ProofInputs4n
 
     // make proof!
-    const zkProof = await generateProof(proofInputs,circuitSizes, {backends, threads})
+    const zkProof = await generateProof(proofInputs, circuitSizes, { backends, threads })
     if (feeData) {
         return {
             relayInputs:
@@ -505,7 +512,7 @@ export function getBackend(circuitSize: number, threads?: number) {
     return new UltraHonkBackend(byteCode, { threads: threads }, { recursive: false });
 }
 
-export async function generateProof(proofInputs: ProofInputs1n | ProofInputs4n, circuitSizes: number[],{threads, backends}:{backends?: BackendPerSize,threads?: number }={}) {
+export async function generateProof(proofInputs: ProofInputs1n | ProofInputs4n, circuitSizes: number[], { threads, backends }: { backends?: BackendPerSize, threads?: number } = {}) {
     const circuitSize = getCircuitSize(proofInputs.burn_data_public.length, circuitSizes)
     console.log("proving with:", { circuitSize, threads })
     const backend = (backends && backends[circuitSize]) ?? getBackend(circuitSize, threads)

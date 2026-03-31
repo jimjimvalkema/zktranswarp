@@ -38,8 +38,9 @@ export async function getSyncedMerkleTree(
         // check preSyncedTree 
         if (preSyncedTree.firstSyncedBlock > deploymentBlock) { throw new Error(`preSyncedTree is not synced from deployment block (${deploymentBlock}), this is not supported`) }
         if (preSyncedTree.firstSyncedBlock < deploymentBlock) { console.warn(`preSyncedTree has been synced from a block before deployment block. Is this the right tree?`) }
-        const isValidRoot = await wormholeTokenFull.read.roots([preSyncedTree.tree.root]);
-        if (isValidRoot === false) { throw new Error(`preSyncedTrees root is not in the "roots" mapping of tree onchain. preSyncedTreeRoot: ${preSyncedTree.tree.root}, lastPreSyncedBlockNumber:${preSyncedTree.lastSyncedBlock}`) }
+        const isValidRoot = Boolean(preSyncedTree.tree.root) && await wormholeTokenFull.read.roots([preSyncedTree.tree.root]);
+        const neverBeenSynced = preSyncedTree.lastSyncedBlock === preSyncedTree.firstSyncedBlock;
+        if (isValidRoot === false && neverBeenSynced === false) { throw new Error(`preSyncedTrees root is not in the "roots" mapping of tree onchain. preSyncedTreeRoot: ${preSyncedTree.tree.root}, lastPreSyncedBlockNumber:${preSyncedTree.lastSyncedBlock}`) }
 
         // use preSyncedTree data
         firstSyncBlock = preSyncedTree.lastSyncedBlock + 1n

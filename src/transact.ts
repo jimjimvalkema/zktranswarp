@@ -186,7 +186,6 @@ export async function proofAndSelfRelay(
     return await selfRelayTx(
         selfRelayInputs,
         burnViewKeyManager.viemWallet,
-        wormholeToken as WormholeTokenTest,
     )
 }
 
@@ -197,7 +196,8 @@ export async function proofAndSelfRelay(
  * @param wallet                - Viem WalletClient that signs and sends the transaction.
  * @param wormholeTokenContract - WormholeToken contract instance with write access.
  */
-export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: WalletClient, wormholeTokenContract: WormholeTokenTest | WormholeToken) {
+export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: WalletClient) {
+    const wormholeTokenContract = getWormholeTokenContract(selfRelayInputs.signatureInputs.contract,{wallet:wallet})
     const _accountNoteHashes = selfRelayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.total_minted_leaf))
     const _accountNoteNullifiers = selfRelayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.nullifier))
     const _root = BigInt(selfRelayInputs.publicInputs.root)
@@ -231,7 +231,8 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
  * @param wallet                - Viem WalletClient that signs and sends the transaction (the relayer).
  * @param wormholeTokenContract - WormholeToken contract instance with write access.
  */
-export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, wormholeTokenContract: WormholeTokenTest | WormholeToken) {
+export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, account?:Address) {
+    const wormholeTokenContract = getWormholeTokenContract(relayInputs.signatureInputs.contract,{wallet:wallet})
     const _accountNoteHashes = relayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.total_minted_leaf))
     const _accountNoteNullifiers = relayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.nullifier))
     const _root = BigInt(relayInputs.publicInputs.root)
@@ -266,5 +267,8 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, wo
         feeData
         // estimation is some time so high it goes over the per tx limit on sepolia
         // to not scare users. we wont set the gas limit super high when the amount of _accountNoteHashes is only 2 (circuit size)
-    ], {account: wallet.account?.address as Address, gas: _accountNoteHashes.length > 32 ? GAS_LIMIT_TX : undefined })
+    ], {
+        account: account ?? wallet.account?.address ?? (await wallet.getAddresses())[0] , 
+        gas: _accountNoteHashes.length > 32 ? GAS_LIMIT_TX : undefined 
+    })
 }
