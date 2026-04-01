@@ -8,7 +8,7 @@ import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getWormholeTokenContract, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
-import { BurnAccountSyncDataSchema, ExportedViewKeyDataCombinedSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
+import { BurnAccountSyncFieldsSchema, ExportedViewKeyDataCombinedSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
@@ -456,7 +456,7 @@ export class BurnViewKeyManager {
         // i hate typescript
         const castedImportedAccount = idBurnAccount.account as Record<string, unknown>
         const castedReCreatedAccount = reCreatedBurnAccount as Record<string, unknown>
-        const syncingRelatedKey = Object.keys(BurnAccountSyncDataSchema.shape)
+        const syncingRelatedKey = ["syncData", ...Object.keys(BurnAccountSyncFieldsSchema.shape)]
         let errors = []
         for (const key of Object.keys(idBurnAccount.account)) {
             if (
@@ -472,8 +472,19 @@ export class BurnViewKeyManager {
 
         if (idBurnAccount.state === "Importable" || idBurnAccount.state === "Synced") {
             // effectively checks if that nonce is valid. If it's too high errors, too low it just keeps it and wont sync further
-            // @TODO test that!
-            await syncBurnAccount(reCreatedBurnAccount, contractAddress, archiveNode, { fullNode, maxNonce: BigInt(idBurnAccount.account.accountNonce) + 1n })
+            // @TODO do this for all contracts in there
+            // find the accountNonce for this contractAddress from the imported syncData
+            const importedSyncData = idBurnAccount.account.syncData
+            let maxNonce: bigint | undefined
+            if (importedSyncData) {
+                for (const chainContracts of Object.values(importedSyncData)) {
+                    if (chainContracts[contractAddress]) {
+                        maxNonce = BigInt(chainContracts[contractAddress].accountNonce) + 1n
+                        break
+                    }
+                }
+            }
+            await syncBurnAccount(reCreatedBurnAccount, contractAddress, archiveNode, { fullNode, maxNonce })
         }
     }
 }

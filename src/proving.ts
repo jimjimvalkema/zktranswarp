@@ -88,40 +88,53 @@ export function getSpendableBalanceProof(
     }
 }
 
-export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses, amount, largestCircuitSize }: { largestCircuitSize: number, burnAccounts: SyncedBurnAccount[], selectBurnAddresses: Address[], amount: bigint }) {
-    const sortedBurnAccounts = burnAccounts.sort((a, b) => Number(b.spendableBalance) - Number(a.spendableBalance))
-    const encryptedTotalMinted: Hex[] = []
-    // man so many copy pasta of same array and big name!! Fix it i cant read this!!!!
-    const burnAccountsAndAmounts: { burnAccount: SyncedBurnAccount, amountToClaim: bigint }[] = []
-    let amountLeft = amount
-    for (const burnAccount of sortedBurnAccounts) {
-        if (selectBurnAddresses.includes(burnAccount.burnAddress)) {
-            const spendableBalance = BigInt(burnAccount.spendableBalance)
-            let amountToClaim = 0n
-            if (spendableBalance <= amountLeft) {
-                amountToClaim = spendableBalance
-            } else {
-                amountToClaim = amountLeft
-            }
-            amountLeft -= amountToClaim
-            const newTotalSpent = amountToClaim + BigInt(burnAccount.totalSpent)
-            encryptedTotalMinted.push(await encryptTotalSpend({ viewingKey: BigInt(burnAccount.viewingKey), amount: newTotalSpent }))
-            burnAccountsAndAmounts.push({
-                burnAccount: burnAccount,
-                amountToClaim: amountToClaim
-            })
-            if (amountLeft === 0n) {
-                break
+export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses, amount, largestCircuitSize, contractAddress }: { largestCircuitSize: number, burnAccounts: SyncedBurnAccount[], selectBurnAddresses: Address[], amount: bigint, contractAddress: Address }) {
+    // collect all (burnAccount, chainId, syncFields) entries across all chains for this contract
+    const entries: { burnAccount: SyncedBurnAccount, chainId: Hex, spendableBalance: bigint }[] = []
+    for (const burnAccount of burnAccounts) {
+        if (!selectBurnAddresses.includes(burnAccount.burnAddress)) continue
+        for (const [chainId, contracts] of Object.entries(burnAccount.syncData)) {
+            const syncFields = contracts[contractAddress]
+            if (syncFields && BigInt(syncFields.spendableBalance) > 0n) {
+                entries.push({ burnAccount, chainId: chainId as Hex, spendableBalance: BigInt(syncFields.spendableBalance) })
             }
         }
     }
+    // sort by spendable balance descending (highest first)
+    entries.sort((a, b) => Number(b.spendableBalance) - Number(a.spendableBalance))
+
+    const encryptedTotalMinted: Hex[] = []
+    const burnAccountsAndAmounts: { burnAccount: SyncedBurnAccount, amountToClaim: bigint, chainId: Hex }[] = []
+    let amountLeft = amount
+    for (const { burnAccount, chainId, spendableBalance } of entries) {
+        const syncFields = burnAccount.syncData[chainId][contractAddress]
+        let amountToClaim = 0n
+        if (spendableBalance <= amountLeft) {
+            amountToClaim = spendableBalance
+        } else {
+            amountToClaim = amountLeft
+        }
+        amountLeft -= amountToClaim
+        const newTotalSpent = amountToClaim + BigInt(syncFields.totalSpent)
+        encryptedTotalMinted.push(await encryptTotalSpend({ viewingKey: BigInt(burnAccount.viewingKey), amount: newTotalSpent }))
+        burnAccountsAndAmounts.push({
+            burnAccount,
+            amountToClaim,
+            chainId
+        })
+        if (amountLeft === 0n) {
+            break
+        }
+    }
     if (amountLeft !== 0n) {
-        throw new Error(`not enough balances in selected burn accounts, short of ${Number(amountLeft)}, selected burn accounts: ${JSON.stringify(sortedBurnAccounts.map((b) => {
+        throw new Error(`not enough balances in selected burn accounts, short of ${Number(amountLeft)}, selected burn accounts: ${JSON.stringify(entries.map((e) => {
+            const syncFields = e.burnAccount.syncData[e.chainId][contractAddress]
             return {
-                accountNonce: b.accountNonce,
-                totalBurned: b.totalBurned,
-                totalSpent: b.totalSpent,
-                spendableBalance: b.spendableBalance
+                chainId: e.chainId,
+                accountNonce: syncFields.accountNonce,
+                totalBurned: syncFields.totalBurned,
+                totalSpent: syncFields.totalSpent,
+                spendableBalance: syncFields.spendableBalance
             }
         }))}`)
     }
@@ -134,18 +147,19 @@ export async function prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddr
 }
 
 export function getHashedInputs(
-    burnAccount: SyncedBurnAccount, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number
+    burnAccount: SyncedBurnAccount, claimAmount: bigint, syncedTree: PreSyncedTree, maxTreeDepth: number, chainId: Hex, contractAddress: Address
 ) {
+    const syncFields = burnAccount.syncData[chainId][contractAddress]
 
     // --- inclusion proof ---
     // hash leafs
     const totalBurnedLeaf = hashTotalBurnedLeaf({
         burnAddress: burnAccount.burnAddress,
-        totalBurned: BigInt(burnAccount.totalBurned)
+        totalBurned: BigInt(syncFields.totalBurned)
     })
-    const prevTotalSpendNoteHashLeaf = BigInt(burnAccount.accountNonce) === 0n ? 0n : hashTotalSpentLeaf({
-        totalSpent: BigInt(burnAccount.totalSpent),
-        accountNonce: BigInt(burnAccount.accountNonce),
+    const prevTotalSpendNoteHashLeaf = BigInt(syncFields.accountNonce) === 0n ? 0n : hashTotalSpentLeaf({
+        totalSpent: BigInt(syncFields.totalSpent),
+        accountNonce: BigInt(syncFields.accountNonce),
         blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash),
         viewingKey: BigInt(burnAccount.viewingKey)
     })
@@ -159,9 +173,9 @@ export function getHashedInputs(
 
     // --- public circuit inputs ---
     // hash public hashes (nullifier, commitment)
-    const nextTotalSpend = BigInt(burnAccount.totalSpent) + claimAmount
-    const prevAccountNonce = BigInt(burnAccount.accountNonce)
-    const nextAccountNonce = BigInt(burnAccount.accountNonce) + 1n
+    const nextTotalSpend = BigInt(syncFields.totalSpent) + claimAmount
+    const prevAccountNonce = BigInt(syncFields.accountNonce)
+    const nextAccountNonce = BigInt(syncFields.accountNonce) + 1n
     const nextTotalSpendNoteHashLeaf = hashTotalSpentLeaf({
         totalSpent: nextTotalSpend,
         accountNonce: nextAccountNonce,
@@ -209,8 +223,8 @@ export function getPubInputs(
  * @returns 
  */
 export function getPrivInputs(
-    { circuitSizes, signatureData, burnAccountsProofs, circuitSize, maxTreeDepth }:
-        { circuitSizes: number[], signatureData: SignatureData, burnAccountsProofs: (BurnAccountProof | FakeBurnAccountProof)[], circuitSize?: number, maxTreeDepth: number }) {
+    { circuitSizes, signatureData, burnAccountsProofs, circuitSize, maxTreeDepth, contractAddress }:
+        { circuitSizes: number[], signatureData: SignatureData, burnAccountsProofs: (BurnAccountProof | FakeBurnAccountProof)[], circuitSize?: number, maxTreeDepth: number, contractAddress: Address }) {
 
     const burn_address_private_proof_data: BurnDataPrivate[] = [];
     circuitSize ??= getCircuitSize(burnAccountsProofs.length, circuitSizes)
@@ -223,10 +237,10 @@ export function getPrivInputs(
             const totalBurnedMerkleProof = burnAccountProof.merkleProofs.totalBurnedMerkleProofs;
             const claimAmount = burnAccountProof.claimAmount
 
-
-            const prevAccountNonce = burnAccountProof.burnAccount.accountNonce
-            const prevTotalSpent = burnAccountProof.burnAccount.totalSpent
-            const totalBurned = burnAccountProof.burnAccount.totalBurned
+            const syncFields = burnAccountProof.burnAccount.syncData[burnAccountProof.chainId][contractAddress]
+            const prevAccountNonce = syncFields.accountNonce
+            const prevTotalSpent = syncFields.totalSpent
+            const totalBurned = syncFields.totalBurned
             // const nextTotalSpent = prevTotalSpent + claimAmount
             // const nextAccountNonce = prevAccountNonce + 1n
 
@@ -381,7 +395,7 @@ export async function createRelayerInputs(
     const burnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }) as SyncedBurnAccount[]
 
     // select burn accounts for spend. Takes highest balances first
-    const { burnAccountsAndAmounts, encryptedTotalMinted } = await prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses: burnAddresses, amount, largestCircuitSize: largestCircuitSize })
+    const { burnAccountsAndAmounts, encryptedTotalMinted } = await prepareBurnAccountsForSpend({ burnAccounts, selectBurnAddresses: burnAddresses, amount, largestCircuitSize: largestCircuitSize, contractAddress: wormholeTokenAddress })
     circuitSize ??= getCircuitSize(burnAccountsAndAmounts.length, circuitSizes)
 
     // format inputs that wil be signed
@@ -420,19 +434,22 @@ export async function createRelayerInputs(
     // TODO @Warptoad: check chainId matches burn account. remove burn account with different chainId
     for (let index = 0; index < circuitSize; index++) {
         if (index < burnAccountsAndAmounts.length) {
-            const { burnAccount, amountToClaim } = burnAccountsAndAmounts[index];
+            const { burnAccount, amountToClaim, chainId: entryChainId } = burnAccountsAndAmounts[index];
             const { merkleProofs, nullifier, nextTotalSpendNoteHashLeaf } = getHashedInputs(
                 burnAccount,
                 amountToClaim,
                 syncedTree,
-                maxTreeDepth
+                maxTreeDepth,
+                entryChainId,
+                wormholeTokenAddress
             )
 
             // group all this private inclusion proof data
             const burnAccountProof: BurnAccountProof = {
                 burnAccount: burnAccount,
                 merkleProofs: merkleProofs,
-                claimAmount: amountToClaim
+                claimAmount: amountToClaim,
+                chainId: entryChainId
             }
             burnAccountProofs.push(burnAccountProof)
             nullifiers.push(nullifier)
@@ -470,7 +487,8 @@ export async function createRelayerInputs(
         signatureData: signatureData,
         maxTreeDepth: maxTreeDepth,
         circuitSize: circuitSize,
-        circuitSizes: circuitSizes
+        circuitSizes: circuitSizes,
+        contractAddress: wormholeTokenAddress
     })
     const proofInputs = { ...publicInputs, ...privateInputs } as ProofInputs1n | ProofInputs4n
 

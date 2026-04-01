@@ -2,10 +2,9 @@ import { createPublicClient, createWalletClient, custom, formatUnits, getAddress
 import type { Address, Hex, WalletClient } from 'viem'
 import { sepolia } from 'viem/chains'
 import 'viem/window';
-import { BurnViewKeyManager, getDeterministicBurnAccounts } from '../src/BurnWallet.ts';
-import type { WormholeToken, SelfRelayInputs, BurnAccount, SyncedBurnAccountNonDet, ViewKeyData, PreSyncedTree, PreSyncedTreeStringifyable, SyncedBurnAccountDet } from '../src/types.js';
-import { createRelayerInputs, selfRelayTx, superSafeBurn } from '../src/transact.js';
-import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json'    with {"type": "json"};
+import type { WormholeToken, SelfRelayInputs, BurnAccount, PreSyncedTree, PreSyncedTreeStringifyable } from '../src/types.js';
+import { selfRelayTx, superSafeBurn } from '../src/transact.js';
+import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import sepoliaDeployments from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
 import type { WormholeTokenTest } from '../test/remint2.test.ts';
 

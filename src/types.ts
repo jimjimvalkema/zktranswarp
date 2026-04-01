@@ -121,6 +121,7 @@ export interface FakeBurnAccount {
 // burn account types are inferred from Zod schemas — edit shapes in burnAccountSchemas.ts
 export type {
     BurnAccountBase,
+    BurnAccountSyncFields,
     BurnAccountSyncData,
     UnsyncedDerivedBurnAccount,
     DerivedBurnAccountRecoverable,
@@ -204,7 +205,8 @@ export type CreateRelayerInputsOpts = {
 export interface BurnAccountProof {
     burnAccount: SyncedBurnAccount,
     merkleProofs: SpendableBalanceProof,
-    claimAmount: bigint
+    claimAmount: bigint,
+    chainId: import("viem").Hex
 }
 
 export interface FakeBurnAccountProof {

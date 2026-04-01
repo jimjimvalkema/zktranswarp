@@ -34,7 +34,7 @@ export const BurnAccountBaseSchema = z.object({
     viewingKey: HexSchema,
 });
 
-export const BurnAccountSyncDataSchema = z.object({
+export const BurnAccountSyncFieldsSchema = z.object({
     // state
     accountNonce: HexSchema,
     totalSpent: HexSchema,
@@ -50,6 +50,25 @@ export const BurnAccountSyncDataSchema = z.object({
     // a know lower possible block where a root can be used to proof
     minProvableBlock: HexSchema,
 });
+
+// only the fields needed to resume syncing (no balances)
+export const BurnAccountImportableSyncFieldsSchema = BurnAccountSyncFieldsSchema.pick({
+    accountNonce: true,
+    lastSyncedBlock: true,
+    minProvableBlock: true,
+});
+
+// chainId (hex) -> contractAddress -> sync data
+export const BurnAccountSyncDataSchema = z.record(
+    HexSchema,
+    z.record(AddressSchema, BurnAccountSyncFieldsSchema)
+);
+
+// chainId (hex) -> contractAddress -> importable sync data (minimal)
+export const BurnAccountImportableSyncDataSchema = z.record(
+    HexSchema,
+    z.record(AddressSchema, BurnAccountImportableSyncFieldsSchema)
+);
 
 
 /**
@@ -86,10 +105,10 @@ const derivedRecoverableKeys = { spendingPubKeyX: true, burnAddress: true, powNo
 // same as derived but powNonce + viewingKey can't be recovered since derivation is unknown
 const unknownRecoverableKeys = { spendingPubKeyX: true, burnAddress: true, blindedAddressDataHash: true } as const;
 
-// Keys Importable is *required* to also have 
+// Keys Importable is *required* to also have
 // Importable also needs Recoverable keys
 // This speeds syncing the account when imported
-const importableSyncData = { accountNonce: true, lastSyncedBlock: true, minProvableBlock: true, powNonce:true } as const
+const importableExtraKeys = { powNonce: true } as const
 
 // keys Derived family is *required* to have. And Unknown family does *not* have
 const derivationKeys = { viewKeySigMessage: true, viewingKeyIndex: true } as const;
@@ -97,18 +116,18 @@ const derivationKeys = { viewKeySigMessage: true, viewingKeyIndex: true } as con
 // --- derived family -----------------------------------------------------------
 
 export const UnsyncedDerivedBurnAccountSchema = BurnAccountBaseSchema;
-export const SyncedDerivedBurnAccountSchema = BurnAccountBaseSchema.extend(BurnAccountSyncDataSchema.shape);
+export const SyncedDerivedBurnAccountSchema = BurnAccountBaseSchema.extend({ syncData: BurnAccountSyncDataSchema });
 export const DerivedBurnAccountRecoverableSchema = BurnAccountBaseSchema.omit(derivedRecoverableKeys);
-export const DerivedBurnAccountImportableSchema = DerivedBurnAccountRecoverableSchema.extend(SyncedDerivedBurnAccountSchema.pick(importableSyncData).shape);
-export const DerivedBurnAccountSchema = BurnAccountBaseSchema.extend(BurnAccountSyncDataSchema.partial().shape);
+export const DerivedBurnAccountImportableSchema = DerivedBurnAccountRecoverableSchema.extend({ syncData: BurnAccountImportableSyncDataSchema, ...BurnAccountBaseSchema.pick(importableExtraKeys).shape  });
+export const DerivedBurnAccountSchema = BurnAccountBaseSchema.extend({ syncData: BurnAccountSyncDataSchema.optional() });
 
 // --- unknown family ----------------------------------------------------------
 
 export const UnsyncedUnknownBurnAccountSchema = BurnAccountBaseSchema.omit(derivationKeys);
-export const SyncedUnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend(BurnAccountSyncDataSchema.shape);
+export const SyncedUnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend({ syncData: BurnAccountSyncDataSchema });
 export const UnknownBurnAccountRecoverableSchema = UnsyncedUnknownBurnAccountSchema.omit(unknownRecoverableKeys);
-export const UnknownBurnAccountImportableSchema = UnknownBurnAccountRecoverableSchema.extend(SyncedUnknownBurnAccountSchema.pick(importableSyncData).shape);
-export const UnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend(BurnAccountSyncDataSchema.partial().shape);
+export const UnknownBurnAccountImportableSchema = UnknownBurnAccountRecoverableSchema.extend({ syncData: BurnAccountImportableSyncDataSchema, ...BurnAccountBaseSchema.pick(importableExtraKeys).shape });
+export const UnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend({ syncData: BurnAccountSyncDataSchema.optional() });
 
 // --- unions ------------------------------------------------------------------
 // merges families Derived + Unknown
@@ -147,6 +166,7 @@ type BaseFieldKeys = keyof z.infer<typeof BurnAccountBaseSchema>;
 type WithReadonlyBase<T> = Omit<T, BaseFieldKeys> & Readonly<Pick<T, Extract<keyof T, BaseFieldKeys>>>;
 
 export type BurnAccountBase = Readonly<z.infer<typeof BurnAccountBaseSchema>>;
+export type BurnAccountSyncFields = z.infer<typeof BurnAccountSyncFieldsSchema>;
 export type BurnAccountSyncData = z.infer<typeof BurnAccountSyncDataSchema>;
 
 export type UnsyncedDerivedBurnAccount = WithReadonlyBase<z.infer<typeof UnsyncedDerivedBurnAccountSchema>>;
@@ -182,7 +202,7 @@ export const isUnknownBurnAccount = (x: AnyBurnAccount): x is UnknownBurnAccount
     !("viewKeySigMessage" in x);
 
 export const isSyncedBurnAccount = (x: BurnAccount): x is SyncedBurnAccount =>
-    "totalSpent" in x && x.totalSpent !== undefined;
+    "syncData" in x && x.syncData !== undefined && Object.keys(x.syncData).length > 0;
 
 // --- types for type identification  -----------------------------------------------------------
 
@@ -228,13 +248,14 @@ export function parseBurnAccount(item: unknown): AnyBurnAccount {
  * Uses presence of `viewKeySigMessage` to split Derived vs Unknown family.
  */
 export function identifyBurnAccount(account: AnyBurnAccount): ParsedBurnAccount {
+    const hasSyncData = "syncData" in account && account.syncData !== undefined && Object.keys(account.syncData).length > 0;
     if ("viewKeySigMessage" in account) {
-        if (SyncedDerivedBurnAccountSchema.safeParse(account).success) return { derivation: "Derived", state: "Synced", account: SyncedDerivedBurnAccountSchema.parse(account) };
+        if (hasSyncData && SyncedDerivedBurnAccountSchema.safeParse(account).success) return { derivation: "Derived", state: "Synced", account: SyncedDerivedBurnAccountSchema.parse(account) };
         if (DerivedBurnAccountImportableSchema.safeParse(account).success) return { derivation: "Derived", state: "Importable", account: DerivedBurnAccountImportableSchema.parse(account) };
         if (DerivedBurnAccountRecoverableSchema.safeParse(account).success) return { derivation: "Derived", state: "Recoverable", account: DerivedBurnAccountRecoverableSchema.parse(account) };
         return { derivation: "Derived", state: "Unsynced", account: DerivedBurnAccountSchema.parse(account) };
     } else {
-        if (SyncedUnknownBurnAccountSchema.safeParse(account).success) return { derivation: "Unknown", state: "Synced", account: SyncedUnknownBurnAccountSchema.parse(account) };
+        if (hasSyncData && SyncedUnknownBurnAccountSchema.safeParse(account).success) return { derivation: "Unknown", state: "Synced", account: SyncedUnknownBurnAccountSchema.parse(account) };
         if (UnknownBurnAccountImportableSchema.safeParse(account).success) return { derivation: "Unknown", state: "Importable", account: UnknownBurnAccountImportableSchema.parse(account) };
         if (UnknownBurnAccountRecoverableSchema.safeParse(account).success) return { derivation: "Unknown", state: "Recoverable", account: UnknownBurnAccountRecoverableSchema.parse(account) };
         return { derivation: "Unknown", state: "Unsynced", account: UnknownBurnAccountSchema.parse(account) };

@@ -52,12 +52,15 @@ export async function getSyncedMerkleTree(
     const timeBefore = Date.now()
     const lastSyncedBlock = await fullNode.getBlockNumber()
     console.log(`syncing merkle tree from ${firstSyncBlock} till ${lastSyncedBlock}`)
+    // TODO: queryEventInChunks has a bug where firstBlock === lastBlock produces 0 iterations.
+    // Adding 1n to lastBlock works around this since getLogs toBlock is inclusive anyway,
+    // and the extra block is either empty or not yet mined.
     const events = await queryEventInChunks({
         publicClient: archiveNode,
         contract: wormholeTokenArchive,
         eventName: "NewLeaf",
         firstBlock: firstSyncBlock,
-        lastBlock: lastSyncedBlock,
+        lastBlock: lastSyncedBlock + 1n,
         chunkSize: blocksPerGetLogsReq,
     })
     console.log(`done syncing merkle tree from ${firstSyncBlock} till ${lastSyncedBlock} \n it took: ${Date.now() - timeBefore} ms`)
@@ -138,17 +141,19 @@ export async function decryptTotalSpend({ viewingKey, totalSpentEncrypted }: { v
 
 //you can event scan or just iter over the nullifier mapping!
 // TODO add actual balance
-export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress: Address, archiveNode: PublicClient, { fullNode, maxNonce }: { fullNode?: PublicClient, maxNonce?: bigint } = {}
+export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress: Address, archiveNode: PublicClient, { fullNode, maxNonce, chainId }: { fullNode?: PublicClient, maxNonce?: bigint, chainId?: Hex } = {}
 ): Promise<SyncedBurnAccount> {
     fullNode ??= archiveNode;
+    chainId ??= toHex(await fullNode.getChainId())
     const wormholeTokenFull = getWormholeTokenContract(contractAddress,{public:archiveNode})
 
     const blockNumberBeforeSync = await fullNode.getBlockNumber()
     const viewingKey = BigInt(burnAccount.viewingKey)
-    const initialAccountNonce = BigInt(burnAccount.accountNonce ?? 0n)
+    const prevSyncFields = burnAccount.syncData?.[chainId]?.[contractAddress]
+    const initialAccountNonce = BigInt(prevSyncFields?.accountNonce ?? 0n)
     let accountNonce = initialAccountNonce
     //accountNonce = accountNonce === 0n ? 0n : accountNonce - 1n
-    let totalSpent = BigInt(burnAccount.totalSpent ?? 0n)
+    let totalSpent = BigInt(prevSyncFields?.totalSpent ?? 0n)
     let isNullified: boolean | null = null;
     let lastSpendBlockNum: bigint | null = null
     let lastNullifier: bigint | null = null;
@@ -204,18 +209,21 @@ export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress:
     }
 
     const totalReceived = await wormholeTokenFull.read.balanceOf([burnAccount.burnAddress]);
-    const nothingHappened = burnAccount.totalBurned !== undefined && totalReceived === BigInt(burnAccount.totalBurned) && initialAccountNonce === accountNonce
+    const nothingHappened = prevSyncFields?.totalBurned !== undefined && totalReceived === BigInt(prevSyncFields.totalBurned) && initialAccountNonce === accountNonce
     const syncedBurnAccount = burnAccount as SyncedBurnAccount
-    syncedBurnAccount.totalSpent = toHex(totalSpent);
-    syncedBurnAccount.accountNonce = toHex(accountNonce);
-    syncedBurnAccount.totalBurned = toHex(totalReceived)
-
-    syncedBurnAccount.spendableBalance = toHex(totalReceived - totalSpent)
-
-    syncedBurnAccount.lastSyncedBlock = toHex(blockNumberBeforeSync)
-    // TODO maybe remove minProvableBlock, technically it's the last block accountNonce got update or the last tx the burn account received. Which ever is lowest. But then i need to scan for that tx when it received something. Not worth the rpc calls
-    // Nothing happened rule also works, but not totally accurate. It's never too low, but usually too high. Maybe not minProvableBlock, but knownLowSafeProvableBlock. You can look for lower if you want
-    syncedBurnAccount.minProvableBlock = nothingHappened && burnAccount.lastSyncedBlock !== undefined ? burnAccount.lastSyncedBlock : syncedBurnAccount.lastSyncedBlock
+    syncedBurnAccount.syncData ??= {}
+    syncedBurnAccount.syncData[chainId] ??= {}
+    const lastSyncedBlock = toHex(blockNumberBeforeSync)
+    syncedBurnAccount.syncData[chainId][contractAddress] = {
+        totalSpent: toHex(totalSpent),
+        accountNonce: toHex(accountNonce),
+        totalBurned: toHex(totalReceived),
+        spendableBalance: toHex(totalReceived - totalSpent),
+        lastSyncedBlock,
+        // TODO maybe remove minProvableBlock, technically it's the last block accountNonce got update or the last tx the burn account received. Which ever is lowest. But then i need to scan for that tx when it received something. Not worth the rpc calls
+        // Nothing happened rule also works, but not totally accurate. It's never too low, but usually too high. Maybe not minProvableBlock, but knownLowSafeProvableBlock. You can look for lower if you want
+        minProvableBlock: nothingHappened && prevSyncFields?.lastSyncedBlock !== undefined ? prevSyncFields.lastSyncedBlock : lastSyncedBlock,
+    }
     return syncedBurnAccount
 }
 
@@ -231,12 +239,12 @@ export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress:
  */
 export async function syncMultipleBurnAccounts(
     BurnViewKeyManager: BurnViewKeyManager, contractAddress: Address, archiveNode: PublicClient,
-    { burnAddressesToSync, ethAccounts, fullNode, maxNonce }: { fullNode?: PublicClient, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[] }) {
+    { burnAddressesToSync, ethAccounts, fullNode, maxNonce, chainId }: { fullNode?: PublicClient, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex }) {
     const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts })
     burnAddressesToSync ??= allBurnAccounts.map((v) => v.burnAddress)
     const syncedBurnAccounts = await Promise.all(allBurnAccounts.map((burnAccount) => {
         if (burnAddressesToSync.includes(burnAccount.burnAddress)) {
-            return syncBurnAccount(burnAccount, contractAddress, archiveNode, { fullNode, maxNonce })
+            return syncBurnAccount(burnAccount, contractAddress, archiveNode, { fullNode, maxNonce, chainId })
         } else {
             return burnAccount
         }

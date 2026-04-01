@@ -3,6 +3,7 @@ import { getAddress, padHex } from "viem"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt";
 
 // ---- contract args -------------
+// at 17n you got 10 years of bitcoin network doing hashes non stop
 export const ADDED_BITS_SECURITY = 8n; // 88 bits total, ~2.5s (max ~10s) pow time , $2.6 trillion attack cost ($10b * 2**(16/2)), 
 export const POW_BITS = ADDED_BITS_SECURITY*2n; //  ADDED_BITS_SECURITY*2 because PoW is only added to burn address, so problem only becomes half as hard
 export const POW_DIFFICULTY = 2n**(256n-POW_BITS)-1n//16n ** (64n - POW_LEADING_ZEROS) - 1n;

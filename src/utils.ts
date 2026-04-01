@@ -181,12 +181,11 @@ export function toImportableBurnAccount(account: SyncedBurnAccount): BurnAccount
 }
 
 export function toImportableDerivedBurnAccount(account: BurnAccount): DerivedBurnAccountImportable {
-    account.accountNonce ??= toHex(0n)
-    account.minProvableBlock ??= toHex(0n)
-    account.lastSyncedBlock ??= toHex(0n)
+    account.syncData ??= {}
     return DerivedBurnAccountImportableSchema.parse(account) as DerivedBurnAccountImportable;
 }
 export function toImportableUnknownBurnAccount(account: BurnAccount): UnknownBurnAccountImportable {
+    account.syncData ??= {}
     return UnknownBurnAccountImportableSchema.parse(account) as UnknownBurnAccountImportable;
 }
 
