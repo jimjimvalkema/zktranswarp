@@ -113,6 +113,9 @@ const importableExtraKeys = { powNonce: true } as const
 // keys Derived family is *required* to have. And Unknown family does *not* have
 const derivationKeys = { viewKeySigMessage: true, viewingKeyIndex: true } as const;
 
+// this is info you derive once you made a burn account on the be halve of your recipient using the stealth address like from
+const stealthDerivedKey = {chainId:true, powNonce: true, burnAddress: true, blindedAddressDataHash: true, difficulty: true } as const;
+
 // --- derived family -----------------------------------------------------------
 
 export const UnsyncedDerivedBurnAccountSchema = BurnAccountBaseSchema;
@@ -128,6 +131,9 @@ export const SyncedUnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.e
 export const UnknownBurnAccountRecoverableSchema = UnsyncedUnknownBurnAccountSchema.omit(unknownRecoverableKeys);
 export const UnknownBurnAccountImportableSchema = UnknownBurnAccountRecoverableSchema.extend({ syncData: BurnAccountImportableSyncDataSchema, ...BurnAccountBaseSchema.pick(importableExtraKeys).shape });
 export const UnknownBurnAccountSchema = UnsyncedUnknownBurnAccountSchema.extend({ syncData: BurnAccountSyncDataSchema.optional() });
+
+// ------ other ----------------
+export const NotOwnedBurnAccountSchema = BurnAccountBaseSchema.pick(stealthDerivedKey);
 
 // --- unions ------------------------------------------------------------------
 // merges families Derived + Unknown
@@ -166,6 +172,7 @@ type BaseFieldKeys = keyof z.infer<typeof BurnAccountBaseSchema>;
 type WithReadonlyBase<T> = Omit<T, BaseFieldKeys> & Readonly<Pick<T, Extract<keyof T, BaseFieldKeys>>>;
 
 export type BurnAccountBase = Readonly<z.infer<typeof BurnAccountBaseSchema>>;
+export type NotOwnedBurnAccount = Readonly<z.infer<typeof NotOwnedBurnAccountSchema>>;
 export type BurnAccountSyncFields = z.infer<typeof BurnAccountSyncFieldsSchema>;
 export type BurnAccountSyncData = z.infer<typeof BurnAccountSyncDataSchema>;
 

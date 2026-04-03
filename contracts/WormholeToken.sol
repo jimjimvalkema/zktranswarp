@@ -67,25 +67,41 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
     // an issuer might change these values depending on their needs
     uint8[] public VERIFIER_SIZES;
     uint8 public AMOUNT_OF_VERIFIERS;    
+
+    uint256[] public ACCEPTED_CHAIN_IDS;
+    uint8 public AMOUNT_OF_CHAIN_IDS;
+
     bytes32 public POW_DIFFICULTY; // find a nonce that result in a hash that is hash < pow_difficulty
     bytes32 public RE_MINT_LIMIT;
     // this one is the only that is not used by the contract, 
     // but is just here so a ui interfacing with this token knows the tree depth that circuit uses
     uint16 public MAX_TREE_DEPTH;
-    //@TODO add list of allowed chainIds. This should be getter function
+
+    bool public IS_CROSS_CHAIN;
+
     /**
      * 
      * @param _verifiers needs to be sorted smallest to lowest.
      * @param _powDifficulty a number where the PoW in the circuit asserts pow_hash < _powDifficulty
      * @param _reMintLimit a maximum total amount one burn address can reMint
      */
-    constructor(Verifier[] memory _verifiers, bytes32 _powDifficulty, uint256 _reMintLimit, uint16 _maxTreeDepth)
-        ERC20WithWormHoleMerkleTree("zkwormholes-token", "WRMHL")
-        EIP712("zkwormholes-token", "1") 
+    constructor(
+        bytes32 _powDifficulty, 
+        uint256 _reMintLimit, 
+        uint16 _maxTreeDepth, 
+        bool _isCrossChain,
+        string memory _tokenName,
+        string memory _tokenSymbol,
+        string memory _712Version,
+        Verifier[] memory _verifiers, 
+        uint256[] memory _acceptedChainIds
+    )
+        ERC20WithWormHoleMerkleTree(_tokenName, _tokenSymbol)
+        EIP712(_tokenName, _712Version) 
     {
         AMOUNT_OF_VERIFIERS = uint8(_verifiers.length);
         uint8 _lastSize = 0;
-        for (uint i = 0; i < _verifiers.length; i++) {
+        for (uint256 i = 0; i < _verifiers.length; i++) {
             Verifier memory _verifier = _verifiers[i];
             require(_lastSize < _verifier.size, "_verifiers needs to be sorted from smallest to largest size");
             _lastSize = _verifier.size;
@@ -93,9 +109,15 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
             VERIFIER_SIZES.push(_verifier.size);
         }
 
+        AMOUNT_OF_CHAIN_IDS = uint8(_acceptedChainIds.length);
+        for (uint256 i = 0; i < _acceptedChainIds.length; i++) {
+            ACCEPTED_CHAIN_IDS[i] = _acceptedChainIds[i];
+        }
+
         POW_DIFFICULTY = _powDifficulty;
         RE_MINT_LIMIT = bytes32(_reMintLimit);
         MAX_TREE_DEPTH = _maxTreeDepth;
+        IS_CROSS_CHAIN = _isCrossChain;
     }
 
     function treeSize() public view  returns (uint256) {
@@ -299,19 +321,21 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
 
     function _formatPublicInputs(
         uint256 _root,
+        uint256 _chainId,
         uint256 _amount,
         bytes32 _signatureHash,
         uint256[] memory _totalMintedLeafs,        // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
         uint256[] memory _nullifiers   // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
     ) public view returns (bytes32[] memory) {
+        uint256 signatureHashOffset = 5;
         uint256 verifierSize = _nullifiers.length;
-        bytes32[] memory publicInputs = new bytes32[](4 + 32 + verifierSize*2);
+        bytes32[] memory publicInputs = new bytes32[](signatureHashOffset + 32 + verifierSize*2);
 
         publicInputs[0] = bytes32(_root);
-        publicInputs[1] = bytes32(uint256(_amount));
-        publicInputs[2] = POW_DIFFICULTY;
-        publicInputs[3] = RE_MINT_LIMIT;
-        uint256 signatureHashOffset = 4;
+        publicInputs[1] = bytes32(_chainId);
+        publicInputs[2] = bytes32(uint256(_amount));
+        publicInputs[3] = POW_DIFFICULTY;
+        publicInputs[4] = RE_MINT_LIMIT;
         for (uint256 i = 0; i < 32; i++) {
             publicInputs[i + signatureHashOffset] = bytes32(uint256(uint8(_signatureHash[i])));
         }
@@ -327,14 +351,16 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
 
 
     function _verifyReMint(
-        uint256 _amount,
-        uint256[] memory _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
-        uint256[] memory _nullifiers,     // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         uint256 _root,
-        bytes calldata _snarkProof,
+        uint256 _chainId,
+        uint256 _amount,
+        bytes32 signatureHash,
+        uint256[] memory _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
+        uint256[] memory _nullifiers,               // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         bytes[] calldata _encryptedTotalMinted,
-        bytes32 signatureHash
+        bytes calldata _snarkProof
     ) public {
+        require(_chainId == block.chainid || IS_CROSS_CHAIN==false, "chainId not matched, can't spend this burn account on this chain");
         require(roots[_root], "invalid root");
         // check and store nullifiers, emit Nullified events with _encryptedTotalMinted blobs
         for (uint256 i = 0; i < _nullifiers.length; i++) {
@@ -347,7 +373,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
         }
 
         // format public inputs and verify proof 
-        bytes32[] memory publicInputs = _formatPublicInputs(_root, _amount, signatureHash, _totalMintedLeafs, _nullifiers);
+        bytes32[] memory publicInputs = _formatPublicInputs(_root, _chainId, _amount, signatureHash, _totalMintedLeafs, _nullifiers);
         uint8 verifierSize = uint8(_nullifiers.length);
         address verifierAddress = VERIFIERS_PER_SIZE[verifierSize];
         require(verifierAddress != address(0), "amount of note hashes not supported");
@@ -357,16 +383,17 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
     }
 
     function reMint(
+        uint256 _root,
+        uint256 _chainId,
         uint256[] memory _totalMintedLeafs, // a blinded commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
         uint256[] memory _nullifiers,       // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
-        uint256 _root,
         bytes calldata _snarkProof,
         SignatureInputs calldata _signatureInputs
     ) public {
         bytes32 _signatureHash = _hashSignatureInputs(_signatureInputs);
-        _verifyReMint(_signatureInputs.amountToReMint, _totalMintedLeafs, _nullifiers, _root, _snarkProof, _signatureInputs.encryptedTotalMinted, _signatureHash);
+        _verifyReMint(_root, _chainId, _signatureInputs.amountToReMint, _signatureHash, _totalMintedLeafs, _nullifiers, _signatureInputs.encryptedTotalMinted, _snarkProof);
         
-        // modified version of _mint that also inserts noteHashes and does not modify total supply!
+        // modified version of _mint that also inserts noteHashes and_chainId does not modify total supply!
         _reMint(_signatureInputs.recipient, _signatureInputs.amountToReMint, _totalMintedLeafs);
         _processCall(_signatureInputs);
     }
@@ -382,16 +409,17 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
     }
 
     function reMintRelayer(
-        uint256[] memory _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
-        uint256[] memory _nullifiers,     // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         uint256 _root,
+        uint256 _chainId,
+        uint256[] memory _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
+        uint256[] memory _nullifiers,               // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         bytes calldata _snarkProof,
         SignatureInputs calldata _signatureInputs,
         FeeData calldata _feeData
     ) public {
         (uint256 _fee, uint256 _refundAmount) = _calculateFee(_feeData, _signatureInputs.amountToReMint);
         bytes32 _signatureHash = _hashSignatureInputsRelayer(_signatureInputs, _feeData);
-        _verifyReMint(_signatureInputs.amountToReMint, _totalMintedLeafs, _nullifiers, _root, _snarkProof, _signatureInputs.encryptedTotalMinted, _signatureHash);
+        _verifyReMint(_root, _chainId, _signatureInputs.amountToReMint, _signatureHash, _totalMintedLeafs, _nullifiers, _signatureInputs.encryptedTotalMinted, _snarkProof);
 
         // optional let anyone claim the fee
         address relayerAddress;

@@ -3,7 +3,7 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { hashMessage, padHex, toHex } from "viem";
 import type { BurnAccount, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData, UnknownBurnAccountRecoverable, UnknownBurnAccountImportable, DerivedBurnAccountImportable } from "./types.ts"
-import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, verifyPowNonce } from "./hashing.ts";
+import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, isValidPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getWormholeTokenContract, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
@@ -496,8 +496,8 @@ async function createBurnAccount(
     const blindedAddressDataHash = hashBlindedAddressData({ spendingPubKeyX: spendingPubKeyX, viewingKey: viewingKey as bigint, chainId: chainIdInt })
 
     if (powNonce) {
-        const isValidPowNonce = verifyPowNonce({ difficulty: difficultyInt, blindedAddressDataHash: blindedAddressDataHash, powNonce: powNonce })
-        if (isValidPowNonce === false) {
+        const isValid = isValidPowNonce({ difficulty: difficultyInt, blindedAddressDataHash: blindedAddressDataHash, powNonce: powNonce })
+        if (isValid === false) {
             const powHash = hashPow({ blindedAddressDataHash, powNonce })
             throw new Error(
                 `Invalid powNonce provided. Please provide a valid one or set to undefined so a new valid one can be found.` +

@@ -12,7 +12,7 @@ import { burn, relayTx, selfRelayTx, superSafeBurn } from "./transact.ts";
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.ts"
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import { createRelayerInputs } from "./proving.ts";
-import { getAllBurnAccounts, getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
+import { getAcceptedChainIdFromContract, getAllBurnAccounts, getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 
@@ -146,9 +146,12 @@ export class BurnWallet {
             const powDifficulty = wormholeTokenFull.read.POW_DIFFICULTY()
             const reMintLimit = wormholeTokenFull.read.RE_MINT_LIMIT();
             const maxTreeDepth = wormholeTokenFull.read.MAX_TREE_DEPTH();
+            const isCrossChain = wormholeTokenFull.read.IS_CROSS_CHAIN()
 
             const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull);
+            const acceptedChainIds = getAcceptedChainIdFromContract(wormholeTokenFull)
             const verifiersEntries = Promise.all((await verifierSizes).map(async (size, index) => [size, await wormholeTokenFull.read.VERIFIERS_PER_SIZE([size])]))
+            const eip712Domain = wormholeTokenFull.read.eip712Domain()
 
             const config: WormholeContractConfig = {
                 VERIFIER_SIZES: await verifierSizes,
@@ -156,6 +159,10 @@ export class BurnWallet {
                 POW_DIFFICULTY: padHex(await powDifficulty, { size: 32 }),
                 RE_MINT_LIMIT: await reMintLimit,
                 MAX_TREE_DEPTH: await maxTreeDepth,
+                IS_CROSS_CHAIN: await isCrossChain,
+                ACCEPTED_CHAIN_IDS: (await acceptedChainIds).map((id)=>toHex(id)),
+                EIP712_NAME: (await eip712Domain)[1],
+                EIP712_VERSION: (await eip712Domain)[2],
             }
             this.contractConfig[chainIdHex][address] = config;
         }
@@ -379,6 +386,8 @@ export class BurnWallet {
             reMintLimit: contractConfig.RE_MINT_LIMIT,
             circuitSizes: contractConfig.VERIFIER_SIZES,
             maxTreeDepth: Number(contractConfig.MAX_TREE_DEPTH),
+            eip712Name: contractConfig.EIP712_NAME,
+            eip712Version: contractConfig.EIP712_VERSION,
             //-----------
         }
         const { syncedData, relayInputs } = await createRelayerInputs(
@@ -475,7 +484,8 @@ export class BurnWallet {
         await superSafeBurn(fullBurnAccount, amount, tokenAddress, this.viemWallet, fullNode, signingEthAccount, {
             difficulty: BigInt(contractConfig.POW_DIFFICULTY),
             reMintLimit: BigInt(contractConfig.RE_MINT_LIMIT),
-            maxTreeDepth: Number(contractConfig.MAX_TREE_DEPTH)
+            maxTreeDepth: Number(contractConfig.MAX_TREE_DEPTH),
+            acceptedChainIds: contractConfig.ACCEPTED_CHAIN_IDS
         })
     }
 }

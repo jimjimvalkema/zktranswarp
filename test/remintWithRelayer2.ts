@@ -57,18 +57,34 @@ describe("Token", async function () {
         reMintVerifier32 = await viem.deployContract(reMint32InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
         reMintVerifier100 = await viem.deployContract(reMint100InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
         //PrivateTransferVerifier = await viem.deployContract(PrivateTransferVerifierContractName, [], { client: { wallet: deployer }, libraries: { } });
+        const _powDifficulty = toHex(POW_DIFFICULTY, {size:32})
+        const _reMintLimit = RE_MINT_LIMIT
+        const _maxTreeDepth = MAX_TREE_DEPTH
+        const _isCrossChain = false
+        const _tokenName = "TWRP"
+        const _tokenSymbol = "zkTransWarpTestToken"
+        const _712Version = "1"
+        const _verifiers = [
+            { contractAddress: reMintVerifier2.address, size: 2 },
+            { contractAddress: reMintVerifier32.address, size: 32 },
+            { contractAddress: reMintVerifier100.address, size: 100 }
+        ]
+        const _acceptedChainIds: bigint[] = []
+
         wormholeToken = await viem.deployContract(
             WormholeTokenContractName,
             [
-                [
-                    { contractAddress: reMintVerifier2.address, size: 2 },
-                    { contractAddress: reMintVerifier32.address, size: 32 },
-                    { contractAddress: reMintVerifier100.address, size: 100 }
-                ],
-                toHex(POW_DIFFICULTY, { size: 32 }),
-                RE_MINT_LIMIT,
-                MAX_TREE_DEPTH
+                _powDifficulty,
+                _reMintLimit,
+                _maxTreeDepth,
+                _isCrossChain,
+                _tokenName,
+                _tokenSymbol,
+                _712Version,
+                _verifiers,
+                _acceptedChainIds
             ],
+
             {
                 client: { wallet: deployer },
                 libraries: { leanIMTPoseidon2: leanIMTPoseidon2.address }
@@ -96,8 +112,8 @@ describe("Token", async function () {
             // acceptedChainIds defaults to [1n], but our chainId is 31337 so we need to set it.
             // archiveNodes will default to the node inside the client (`alice`), but that is generally a bad idea in prod since those are heavily rate limited note even archive clients
             const chainId = await publicClient.getChainId()
-            const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [BigInt(chainId)] })
-            const relayerBurnWallet = new BurnWallet(relayer, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [BigInt(chainId)] })
+            const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
+            const relayerBurnWallet = new BurnWallet(relayer, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
             const reMintRecipient = bob.account.address
             const aliceRefundBurnAccount = await aliceBurnWallet.createBurnAccount(wormholeToken.address, { viewingKeyIndex: 0 })
             // ---------------------------------------------
@@ -254,7 +270,7 @@ describe("Token", async function () {
             }
             // test wallet imports TODO move this
             const walletExport = aliceBurnWallet.exportWallet({ paranoidMode: false, merkleTree: false })
-            const alicePrivate2 = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [BigInt(chainId)] })
+            const alicePrivate2 = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
             await alicePrivate2.importWallet(walletExport, wormholeToken.address)
         })
 

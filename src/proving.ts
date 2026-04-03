@@ -355,7 +355,7 @@ export async function createRelayerInputs(
     tokenAddress: Address,
     archiveNode: PublicClient,
     signingEthAccount: Address,
-    { fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
+    { fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
     // set defaults
@@ -366,6 +366,11 @@ export async function createRelayerInputs(
     circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
     chainId ??= BigInt(await fullNode.getChainId());
     maxTreeDepth ??= await wormholeTokenFull.read.MAX_TREE_DEPTH()
+    if (eip712Name === undefined || eip712Version === undefined) {
+        const [, name, version] = await wormholeTokenFull.read.eip712Domain()
+        eip712Name ??= name
+        eip712Version ??= version
+    }
     // TODO should be a minimum powDifficulty
     burnAddresses ??= getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }).map((b) => b.burnAddress)
     const largestCircuitSize = circuitSizes[circuitSizes.length - 1]
@@ -420,7 +425,9 @@ export async function createRelayerInputs(
         signatureInputs,
         Number(chainId),
         tokenAddress,
-        signingEthAccount
+        signingEthAccount,
+        eip712Name,
+        eip712Version
     )
 
     const syncedTree = await syncedTreePromise;

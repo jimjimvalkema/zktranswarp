@@ -26,18 +26,18 @@ export function getViewingKey({ signature }: { signature: Hex }) {
 }
 
 export async function signPrivateTransfer(
-    burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address
+    burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address, eip712Name: string, eip712Version: string
 ): Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }>;
 
 export async function signPrivateTransfer(
-    burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address
+    burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address, eip712Name: string, eip712Version: string
 ): Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }>;
 
 // TODO make signingEthAccount optional, and have BurnViewKeyManager have a list that the user can order, where top one is the default account used
-export async function signPrivateTransfer(burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address):
+export async function signPrivateTransfer(burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address, eip712Name: string, eip712Version: string):
     Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }> {
     chainId ??= await burnViewKeyManager.viemWallet.getChainId()
-    const domain = getPrivateReMintDomain(chainId, signatureInputs.contract)
+    const domain = getPrivateReMintDomain(chainId, signatureInputs.contract, eip712Name, eip712Version)
 
     const baseMessage = {
         _recipient: signatureInputs.recipient,

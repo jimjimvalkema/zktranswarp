@@ -19,7 +19,7 @@ export function getBurnAddress({ blindedAddressDataHash, powNonce }: { blindedAd
     return getAddress("0x" + toHex(addressHash, { size: 32 }).slice(2 + 24)) //slice off bytes and make it the address type in viem
 }
 
-export function verifyPowNonce({ blindedAddressDataHash, powNonce, difficulty }: { blindedAddressDataHash: bigint, powNonce: bigint, difficulty: bigint }) {
+export function isValidPowNonce({ blindedAddressDataHash, powNonce, difficulty }: { blindedAddressDataHash: bigint, powNonce: bigint, difficulty: bigint }) {
     const powHash = hashPow({ blindedAddressDataHash, powNonce });
     return powHash < difficulty
 }

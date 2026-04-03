@@ -1,15 +1,16 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
-import { toHex } from "viem";
+import { getAddress, toHex } from "viem";
 import type { WormholeTokenTest } from "../test/remint2.test.ts";
 import type { BackendPerSize, BurnAccount, PreSyncedTree, RelayInputs, SelfRelayInputs, UnsyncedBurnAccount, WormholeToken } from "./types.ts";
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { getDeploymentBlock } from "./syncing.ts";
-import { getBurnAddressSafe, hashBlindedAddressData } from "./hashing.ts";
+import { getBurnAddressSafe, hashBlindedAddressData, hashPow, isValidPowNonce } from "./hashing.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, GAS_LIMIT_TX } from "./constants.ts";
 import { createRelayerInputs } from "./proving.ts";
 import type { BurnWallet } from "./BurnWallet.ts";
-import { getWormholeTokenContract } from "./utils.ts";
+import { getAcceptedChainIdFromContract, getWormholeTokenContract } from "./utils.ts";
+import type { NotOwnedBurnAccount } from "./schemas.ts";
 
 
 /**
@@ -24,25 +25,27 @@ import { getWormholeTokenContract } from "./utils.ts";
  * @returns 
  */
 export async function burn(
-    burnAddress: Address, amount: bigint, wormholeToken: WormholeTokenTest, signingEthAccount: Address,
-    { difficulty, reMintLimit, maxTreeDepth }: { difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
+    burnAddress: Address, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
+    { reMintLimit, maxTreeDepth, isCrossChain }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
 ) {
-    difficulty ??= BigInt(await wormholeToken.read.POW_DIFFICULTY())
-    reMintLimit ??= BigInt(await wormholeToken.read.RE_MINT_LIMIT())
-    maxTreeDepth ??= await wormholeToken.read.MAX_TREE_DEPTH()
-    // nvm this wont result in anything dangerous
-    // const nonce = await fullNode.getTransactionCount({address: burnAddress})
-    // if (nonce !== 0) { throw new Error("This address has an account nonce that is not 0. This is a EOA. Please do a regular transfer instead")}
-    const balance = await wormholeToken.read.balanceOf([burnAddress])
+    // defaults
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
+    reMintLimit ??= BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT())
+    isCrossChain ??= await wormholeTokenFull.read.IS_CROSS_CHAIN()
+    maxTreeDepth ??= await wormholeTokenFull.read.MAX_TREE_DEPTH()
+
+    // state
+    const balance = await wormholeTokenFull.read.balanceOf([burnAddress])
     const newBurnBalance = balance + amount
-    const treeSize = await wormholeToken.read.treeSize()
+    const treeSize = await wormholeTokenFull.read.treeSize()
     const safeDistanceFromFullTree = (35_000n / 10n) * 60n * 60n // 35_000 burn tx's for 1 hour.  assumes a 35_000 tps chain and burn txs being 10x expensive
     const fullTreeSize = 2n ** BigInt(maxTreeDepth)
+
+
     if (treeSize >= fullTreeSize) { throw new Error("Tree is FULL this tx WILL RESULT IS LOSS OF ALL FUNDS SEND. DO NOT SEND ANY BURN TRANSACTION!!!") }
     if (treeSize + safeDistanceFromFullTree >= fullTreeSize) { throw new Error("Tree is almost full and the risk is high this burn tx will result in loss of all funds send") }
-    if (newBurnBalance < reMintLimit === false) { throw new Error(`This transfer will cause the balance to go over the RE_MINT_LIMIT. This wil result in LOSS OF ALL FUNDS OVER THE LIMIT!! DO NOT SEND THIS TRANSACTION!!\n new balance: ${newBurnBalance} \n limit:       ${reMintLimit}`) }
-    return await (wormholeToken as WormholeTokenTest).write.transfer([burnAddress, amount], { account: signingEthAccount })
-
+    if (newBurnBalance >= reMintLimit) { throw new Error(`This transfer will cause the balance to go over the RE_MINT_LIMIT. This wil result in LOSS OF ALL FUNDS OVER THE LIMIT!! DO NOT SEND THIS TRANSACTION!!\n new balance: ${newBurnBalance} \n limit:       ${reMintLimit}`) }
+    return await wormholeTokenFull.write.transfer([burnAddress, amount], { account: signingEthAccount, chain: null })
 }
 
 /**
@@ -58,22 +61,34 @@ export async function burn(
  * @returns
  */
 export async function safeBurn(
-    burnAccount: BurnAccount, amount: bigint, wormholeToken: WormholeTokenTest, signingEthAccount: Address,
-    { difficulty, reMintLimit, maxTreeDepth }: { difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
+    burnAccount: NotOwnedBurnAccount, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
+    { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
 ) {
-    difficulty ??= BigInt(await wormholeToken.read.POW_DIFFICULTY())
-    reMintLimit ??= BigInt(await wormholeToken.read.RE_MINT_LIMIT())
-    maxTreeDepth ??= await wormholeToken.read.MAX_TREE_DEPTH()
-    const burnAddress = getBurnAddressSafe({ blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash), powNonce: BigInt(burnAccount.powNonce), difficulty: difficulty })
-    const balance = await wormholeToken.read.balanceOf([burnAddress])
-    const newBurnBalance = balance + amount
-    const treeSize = await wormholeToken.read.treeSize()
-    const safeDistanceFromFullTree = (35_000n / 10n) * 60n * 60n // 35_000 burn tx's for 1 hour.  assumes a 35_000 tps chain and burn txs being 10x expensive
-    const fullTreeSize = 2n ** BigInt(maxTreeDepth)
-    if (treeSize >= fullTreeSize) { throw new Error("Tree is FULL this tx WILL RESULT IS LOSS OF ALL FUNDS SEND. DO NOT SEND ANY BURN TRANSACTION!!!") }
-    if (treeSize + safeDistanceFromFullTree >= fullTreeSize) { throw new Error("Tree is almost full and the risk is high this burn tx will result in loss of all funds send") }
-    if (newBurnBalance < reMintLimit === false) { throw new Error(`This transfer will cause the balance to go over the RE_MINT_LIMIT. This wil result in LOSS OF ALL FUNDS OVER THE LIMIT!! DO NOT SEND THIS TRANSACTION!!\n new balance: ${newBurnBalance} \n limit:       ${reMintLimit}`) }
-    return await (wormholeToken as WormholeTokenTest).write.transfer([burnAddress, amount], { account: signingEthAccount })
+    // defaults
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
+    isCrossChain ??= await wormholeTokenFull.read.IS_CROSS_CHAIN()
+    difficulty ??= BigInt(await wormholeTokenFull.read.POW_DIFFICULTY())
+
+    // checks
+    if (isCrossChain) {
+        acceptedChainIds ??= (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+        if (acceptedChainIds.includes(burnAccount.chainId) === false) { throw new Error(`Burn account is on chainId:${burnAccount.chainId} but that is not a valid chainId for token: ${tokenAddress}, only these chainIds are accepted:${acceptedChainIds.toString()}`) }
+    }
+    const isValidPow = isValidPowNonce({ 
+        blindedAddressDataHash:BigInt(burnAccount.blindedAddressDataHash), 
+        powNonce:BigInt(burnAccount.powNonce), 
+        difficulty:difficulty
+    })
+    if (isValidPow === false) {throw new Error(`PoW incorrect. Difficulty is ${toHex(difficulty, {size:32})} but resulting hash is: ${toHex(hashPow({blindedAddressDataHash:BigInt(burnAccount.blindedAddressDataHash), powNonce:BigInt(burnAccount.powNonce)}), {size:32})}`)}
+    return await burn(
+        burnAccount.burnAddress,
+        amount,
+        tokenAddress,
+        wallet,
+        fullNode,
+        signingEthAccount,
+        { reMintLimit, maxTreeDepth, isCrossChain }
+    )
 }
 
 
@@ -91,23 +106,27 @@ export async function safeBurn(
  */
 export async function superSafeBurn(
     burnAccount: BurnAccount, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
-    { difficulty, reMintLimit, maxTreeDepth }: { difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
+    { difficulty, reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
 ) {
-    const wormholeTokenFull = getWormholeTokenContract(tokenAddress,{wallet,public:fullNode})
+    // defaults
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
     difficulty ??= BigInt(await wormholeTokenFull.read.POW_DIFFICULTY())
-    reMintLimit ??= BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT())
-    maxTreeDepth ??= await wormholeTokenFull.read.MAX_TREE_DEPTH()
+
+    // checks
     const blindedAddressDataHash = hashBlindedAddressData({ spendingPubKeyX: burnAccount.spendingPubKeyX, viewingKey: BigInt(burnAccount.viewingKey), chainId: BigInt(burnAccount.chainId) })
     const burnAddress = getBurnAddressSafe({ blindedAddressDataHash: blindedAddressDataHash, powNonce: BigInt(burnAccount.powNonce), difficulty: difficulty })
-    const balance = await wormholeTokenFull.read.balanceOf([burnAddress])
-    const newBurnBalance = balance + amount
-    const treeSize = await wormholeTokenFull.read.treeSize()
-    const safeDistanceFromFullTree = (35_000n / 10n) * 60n * 60n // 35_000 burn tx's for 1 hour.  assumes a 35_000 tps chain and burn txs being 10x expensive
-    const fullTreeSize = 2n ** BigInt(maxTreeDepth)
-    if (treeSize >= fullTreeSize) { throw new Error("Tree is FULL this tx WILL RESULT IS LOSS OF ALL FUNDS SEND. DO NOT SEND ANY BURN TRANSACTION!!!") }
-    if (treeSize + safeDistanceFromFullTree >= fullTreeSize) { throw new Error("Tree is almost full and the risk is high this burn tx will result in loss of all funds send") }
-    if (newBurnBalance < reMintLimit === false) { throw new Error(`This transfer will cause the balance to go over the RE_MINT_LIMIT. This wil result in LOSS OF ALL FUNDS OVER THE LIMIT!! DO NOT SEND THIS TRANSACTION!!\n new balance: ${newBurnBalance} \n limit:       ${reMintLimit}`) }
-    return await wormholeTokenFull.write.transfer([burnAddress, amount], { account: signingEthAccount, chain:null })
+    if(burnAddress !== getAddress(burnAccount.burnAddress)) {throw new Error(`Burn account address mismatch, recreated burn address as: ${burnAddress} but burnAccount has it's burn address set as ${getAddress(burnAccount.burnAddress)}`)}
+    
+    // burn
+    return safeBurn(
+        burnAccount,
+        amount,
+        tokenAddress,
+        wallet,
+        fullNode,
+        signingEthAccount,
+        { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain }
+    )
 }
 
 /**
@@ -197,11 +216,12 @@ export async function proofAndSelfRelay(
  * @param wormholeTokenContract - WormholeToken contract instance with write access.
  */
 export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: WalletClient) {
-    const wormholeTokenContract = getWormholeTokenContract(selfRelayInputs.signatureInputs.contract,{wallet:wallet})
+    const wormholeTokenContract = getWormholeTokenContract(selfRelayInputs.signatureInputs.contract, { wallet: wallet })
     const _totalMintedLeafs = selfRelayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.total_minted_leaf))
     const _nullifiers = selfRelayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.nullifier))
     const _root = BigInt(selfRelayInputs.publicInputs.root)
     const _snarkProof = selfRelayInputs.proof
+    const _chainId = BigInt(selfRelayInputs.publicInputs.chain_id)
     const _signatureInputs =
     {
         amountToReMint: BigInt(selfRelayInputs.signatureInputs.amountToReMint),
@@ -213,11 +233,12 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
 
     }
     return await (wormholeTokenContract as WormholeTokenTest).write.reMint([
-        _totalMintedLeafs,
-        _nullifiers,
         _root,
+        _chainId,
+        _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
+        _nullifiers,               // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         _snarkProof,
-        _signatureInputs
+        _signatureInputs,
         // estimation is some time so high it goes over the per tx limit on sepolia
         // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
     ], { account: wallet.account?.address as Address, gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined })
@@ -231,12 +252,13 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
  * @param wallet                - Viem WalletClient that signs and sends the transaction (the relayer).
  * @param wormholeTokenContract - WormholeToken contract instance with write access.
  */
-export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, account?:Address) {
-    const wormholeTokenContract = getWormholeTokenContract(relayInputs.signatureInputs.contract,{wallet:wallet})
+export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, account?: Address) {
+    const wormholeTokenContract = getWormholeTokenContract(relayInputs.signatureInputs.contract, { wallet: wallet })
     const _totalMintedLeafs = relayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.total_minted_leaf))
     const _nullifiers = relayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.nullifier))
     const _root = BigInt(relayInputs.publicInputs.root)
     const _snarkProof = relayInputs.proof
+    const _chainId = BigInt(relayInputs.publicInputs.chain_id)
     const _signatureInputs =
     {
         amountToReMint: BigInt(relayInputs.signatureInputs.amountToReMint),
@@ -247,7 +269,7 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
         callValue: BigInt(relayInputs.signatureInputs.callValue)
 
     }
-    const feeData = {
+    const _feeData = {
         tokensPerEthPrice: BigInt(relayInputs.signatureInputs.feeData.tokensPerEthPrice),
         maxFee: BigInt(relayInputs.signatureInputs.feeData.maxFee),
         amountForRecipient: BigInt(relayInputs.signatureInputs.feeData.amountForRecipient),
@@ -259,16 +281,17 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
 
     }
     return await (wormholeTokenContract as WormholeTokenTest).write.reMintRelayer([
-        _totalMintedLeafs,
-        _nullifiers,
         _root,
+        _chainId,
+        _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
+        _nullifiers,               // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         _snarkProof,
         _signatureInputs,
-        feeData
+        _feeData
         // estimation is some time so high it goes over the per tx limit on sepolia
         // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
     ], {
-        account: account ?? wallet.account?.address ?? (await wallet.getAddresses())[0] , 
-        gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined 
+        account: account ?? wallet.account?.address ?? (await wallet.getAddresses())[0],
+        gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined
     })
 }

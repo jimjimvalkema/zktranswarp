@@ -70,13 +70,11 @@ export const zeroAddress = getAddress(padHex("0x00", { size: 20 }))
 
 
 // ---------- eip 712 ----------------------
-const PRIVATE_RE_MINT_DOMAIN_NAME = "zkwormholes-token" as const;
-const PRIVATE_RE_MINT_VERSION = "1"
 
-export function getPrivateReMintDomain(chainId:number, verifyingContract:Address) {
+export function getPrivateReMintDomain(chainId:number, verifyingContract:Address, name: string, version: string) {
     return {
-        name: PRIVATE_RE_MINT_DOMAIN_NAME,
-        version: PRIVATE_RE_MINT_VERSION,
+        name: name,
+        version: version,
         chainId: chainId,
         verifyingContract: verifyingContract,
     } as const;

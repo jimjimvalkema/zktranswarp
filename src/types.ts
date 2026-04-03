@@ -200,6 +200,8 @@ export type CreateRelayerInputsOpts = {
     reMintLimit?: Hex;
     circuitSizes?: number[];
     maxTreeDepth?: number;
+    eip712Name?: string;
+    eip712Version?: string;
 };
 
 export interface BurnAccountProof {
@@ -220,5 +222,9 @@ export interface WormholeContractConfig {
     VERIFIERS_PER_SIZE:{[size:number]:Address}
     POW_DIFFICULTY: Hex,
     RE_MINT_LIMIT: Hex,
-    MAX_TREE_DEPTH: number
+    MAX_TREE_DEPTH: number,
+    IS_CROSS_CHAIN: boolean,
+    ACCEPTED_CHAIN_IDS: Hex[],
+    EIP712_NAME: string,
+    EIP712_VERSION: string
 }

@@ -5,7 +5,7 @@ global BURN_ADDRESSES_LEN: u32 = 2;
 fn main(
     //----- public inputs
     root: pub Field,
-    chain_id: Field, // pub key word is removed since we don't use cross-chain functionality
+    chain_id: pub Field,
     amount: pub Field,
     pow_difficulty: pub Field,
     re_mint_limit: pub Field,

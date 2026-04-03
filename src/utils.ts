@@ -168,6 +168,12 @@ export async function getCircuitSizesFromContract(wormholeToken: WormholeToken |
     return sizes
 }
 
+
+export async function getAcceptedChainIdFromContract(wormholeToken: WormholeToken | WormholeTokenTest) {
+    const AMOUNT_OF_CHAIN_IDS = await wormholeToken.read.AMOUNT_OF_CHAIN_IDS()
+    const chainIds = await Promise.all(new Array(AMOUNT_OF_CHAIN_IDS).fill(0).map((v, index) => wormholeToken.read.ACCEPTED_CHAIN_IDS([BigInt(index)])))
+    return chainIds
+}
 export function getCircuitSize(amountBurnAddresses: number, circuitSizes: number[]) {
     return circuitSizes.find((v) => v >= amountBurnAddresses) as number
 }
