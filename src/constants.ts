@@ -26,7 +26,7 @@ export const MAX_TREE_DEPTH = 44 as const;
 
 //---------------- 
 
-export const ENCRYPTED_TOTAL_SPENT_PADDING = 256 // leaving some space for other things. Fits about 3 other key value pairs
+export const ENCRYPTED_TOTAL_MINTED_PADDING = 256 // leaving some space for other things. Fits about 3 other key value pairs
 export const EAS_BYTE_LEN_OVERHEAD = 28
 
 export const VIEWING_KEY_SIG_MESSAGE = `

@@ -1,10 +1,10 @@
 import type { Hex, Signature, Account, Hash, WalletClient, Address, } from "viem";
 import { recoverPublicKey, hashMessage, hexToBigInt, hexToBytes, toHex, getAddress, keccak256, toPrefixedMessage, encodePacked, padHex, bytesToHex, hashTypedData } from "viem";
 import { poseidon2Hash } from "@zkpassport/poseidon2"
-import { BURN_ADDRESS_TYPE, EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_SPENT_PADDING, FAKE_LEAF_DOMAIN, FAKE_NULLIFIER_DOMAIN, getPrivateReMintDomain, NULLIFIER_DOMAIN, PRIVATE_RE_MINT_712_TYPES, PRIVATE_RE_MINT_RELAYER_712_TYPES, TOTAL_BURNED_DOMAIN as TOTAL_BURNED_DOMAIN, TOTAL_MINTED_DOMAIN, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
+import { BURN_ADDRESS_TYPE, EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, FAKE_LEAF_DOMAIN, FAKE_NULLIFIER_DOMAIN, getPrivateReMintDomain, NULLIFIER_DOMAIN, PRIVATE_RE_MINT_712_TYPES, PRIVATE_RE_MINT_RELAYER_712_TYPES, TOTAL_BURNED_DOMAIN as TOTAL_BURNED_DOMAIN, TOTAL_MINTED_DOMAIN, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import type { FeeData, SignatureData, SignatureInputs, SignatureInputsWithFee, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64 } from "./types.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
-import { encryptTotalSpend } from "./syncing.ts";
+import { encryptTotalMinted } from "./syncing.ts";
 
 // ------------- circuit spec -------------------
 
@@ -48,13 +48,13 @@ export function hashPow({ blindedAddressDataHash, powNonce }: { blindedAddressDa
     return powHash
 }
 
-// prev_account_nonce makes sure the hash is never the same even when the total_spent is not different
+// prev_account_nonce makes sure the hash is never the same even when the total_minted is not different
 // secret is so others cant try and find the pre-image (since this hash is posted onchain)
-export function hashTotalSpentLeaf({ totalSpent, accountNonce, blindedAddressDataHash, viewingKey }: { totalSpent: bigint, accountNonce: bigint, blindedAddressDataHash: bigint, viewingKey: bigint }) {
-    return poseidon2Hash([totalSpent, accountNonce, blindedAddressDataHash, viewingKey, TOTAL_MINTED_DOMAIN])
+export function hashTotalMintedLeaf({ totalMinted, accountNonce, blindedAddressDataHash, viewingKey }: { totalMinted: bigint, accountNonce: bigint, blindedAddressDataHash: bigint, viewingKey: bigint }) {
+    return poseidon2Hash([totalMinted, accountNonce, blindedAddressDataHash, viewingKey, TOTAL_MINTED_DOMAIN])
 }
 
-// prev_account_nonce makes sure the hash is never the same even when the total_spent is not different
+// prev_account_nonce makes sure the hash is never the same even when the total_minted is not different
 // secret is so others cant try and find the pre-image (since this hash is posted onchain)
 export function hashNullifier({ accountNonce, viewingKey }: { accountNonce: bigint, viewingKey: bigint }) {
     return poseidon2Hash([accountNonce, viewingKey, NULLIFIER_DOMAIN])

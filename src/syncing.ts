@@ -2,9 +2,9 @@ import { queryEventInChunks } from "@warptoad/gigabridge-js/viem-utils"
 import type { LeanIMTHashFunction } from "@zk-kit/lean-imt"
 import { LeanIMT } from "@zk-kit/lean-imt"
 import type { Address, Hex, PublicClient, WalletClient } from "viem"
-import { bytesToHex, concatHex, getContract, hexToBytes, sliceHex, toHex } from "viem"
+import { bytesToHex, concatHex, getAddress, getContract, hexToBytes, sliceHex, toHex } from "viem"
 import type { WormholeTokenTest } from "../test/remint2.test.ts"
-import { ENCRYPTED_TOTAL_SPENT_PADDING, WORMHOLE_TOKEN_DEPLOYMENT_BLOCK } from "./constants.ts"
+import { ENCRYPTED_TOTAL_MINTED_PADDING, WORMHOLE_TOKEN_DEPLOYMENT_BLOCK } from "./constants.ts"
 import type { BurnAccount, PreSyncedTree, SyncedBurnAccount, WormholeToken } from "./types.ts"
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { hashNullifier } from "./hashing.ts"
@@ -23,12 +23,12 @@ export function getDeploymentBlock(chainId: number) {
 export const poseidon2IMTHashFunc: LeanIMTHashFunction = (a: bigint, b: bigint) => poseidon2Hash([a, b])
 
 export async function getSyncedMerkleTree(
-    contractAddress: Address, archiveNode: PublicClient, 
+    tokenAddress: Address, archiveNode: PublicClient, 
     {fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq }:{fullNode?:PublicClient,preSyncedTree?: PreSyncedTree, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}
 ) {
     fullNode ??= archiveNode;
-    const wormholeTokenFull = getWormholeTokenContract(contractAddress, {public:fullNode})
-    const wormholeTokenArchive = getWormholeTokenContract(contractAddress, {public:archiveNode})
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, {public:fullNode})
+    const wormholeTokenArchive = getWormholeTokenContract(tokenAddress, {public:archiveNode})
     deploymentBlock ??= getDeploymentBlock(await fullNode.getChainId())
     let firstSyncBlock = deploymentBlock
     let originalStartSyncBlock = deploymentBlock
@@ -76,7 +76,7 @@ export async function getSyncedMerkleTree(
     return { tree, lastSyncedBlock, firstSyncedBlock: deploymentBlock } as PreSyncedTree
 }
 
-async function encrypt({ plaintext, viewingKey, padding = ENCRYPTED_TOTAL_SPENT_PADDING }: { plaintext: string, viewingKey: bigint, padding?: number }): Promise<Hex> {
+async function encrypt({ plaintext, viewingKey, padding = ENCRYPTED_TOTAL_MINTED_PADDING }: { plaintext: string, viewingKey: bigint, padding?: number }): Promise<Hex> {
     if (plaintext.length > padding) {
         throw new Error(`Plaintext too long: ${plaintext.length} > ${padding}`)
     }
@@ -127,33 +127,33 @@ async function decrypt({ viewingKey, cipherText }: { viewingKey: bigint, cipherT
     return new TextDecoder().decode(decrypted).replace(/\0+$/, '')
 }
 
-export async function encryptTotalSpend({ viewingKey, amount }: { viewingKey: bigint, amount: bigint }): Promise<Hex> {
-    const json = { totalSpend: toHex(amount, { size: 32 }) }
+export async function encryptTotalMinted({ viewingKey, amount }: { viewingKey: bigint, amount: bigint }): Promise<Hex> {
+    const json = { totalMinted: toHex(amount, { size: 32 }) }
     return await encrypt({ plaintext: JSON.stringify(json), viewingKey })
 }
 
-export async function decryptTotalSpend({ viewingKey, totalSpentEncrypted }: { viewingKey: bigint, totalSpentEncrypted: Hex }): Promise<bigint> {
-    const decryptedJson = JSON.parse(await decrypt({ viewingKey: viewingKey, cipherText: totalSpentEncrypted }))
-    return BigInt(decryptedJson.totalSpend)
+export async function decryptTotalMinted({ viewingKey, totalMintedEncrypted }: { viewingKey: bigint, totalMintedEncrypted: Hex }): Promise<bigint> {
+    const decryptedJson = JSON.parse(await decrypt({ viewingKey: viewingKey, cipherText: totalMintedEncrypted }))
+    return BigInt(decryptedJson.totalMinted)
 }
 
 
 
 //you can event scan or just iter over the nullifier mapping!
 // TODO add actual balance
-export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress: Address, archiveNode: PublicClient, { fullNode, maxNonce, chainId }: { fullNode?: PublicClient, maxNonce?: bigint, chainId?: Hex } = {}
+export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Address, archiveNode: PublicClient, { fullNode, maxNonce, chainId }: { fullNode?: PublicClient, maxNonce?: bigint, chainId?: Hex } = {}
 ): Promise<SyncedBurnAccount> {
     fullNode ??= archiveNode;
     chainId ??= toHex(await fullNode.getChainId())
-    const wormholeTokenFull = getWormholeTokenContract(contractAddress,{public:archiveNode})
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress,{public:archiveNode})
 
     const blockNumberBeforeSync = await fullNode.getBlockNumber()
     const viewingKey = BigInt(burnAccount.viewingKey)
-    const prevSyncFields = burnAccount.syncData?.[chainId]?.[contractAddress]
+    const prevSyncFields = burnAccount.syncData?.[chainId]?.[tokenAddress]
     const initialAccountNonce = BigInt(prevSyncFields?.accountNonce ?? 0n)
     let accountNonce = initialAccountNonce
     //accountNonce = accountNonce === 0n ? 0n : accountNonce - 1n
-    let totalSpent = BigInt(prevSyncFields?.totalSpent ?? 0n)
+    let totalMinted = BigInt(prevSyncFields?.totalMinted ?? 0n)
     let isNullified: boolean | null = null;
     let lastSpendBlockNum: bigint | null = null
     let lastNullifier: bigint | null = null;
@@ -188,13 +188,13 @@ export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress:
         lastNullifier = nullifier
     }
     // the above loop will have lastSpendBlockNum and lastNullifier. Set to 0n, if the account is already synced.
-    // so we need to skip getContractEvents since no event is at block 0 and we don't need totalSpentEncrypted, we are already synced
+    // so we need to skip getContractEvents since no event is at block 0 and we don't need totalMintedEncrypted, we are already synced
     if (accountNonce > initialAccountNonce) {
         if (lastSpendBlockNum === null) {
             throw new Error("nullifiedAtBlock can't be null")
         } else {
             const logs = await archiveNode.getContractEvents({
-                address: contractAddress,
+                address: tokenAddress,
                 abi: wormholeTokenAbi,
                 eventName: "Nullified",
                 fromBlock: lastSpendBlockNum,
@@ -203,22 +203,22 @@ export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress:
                     nullifier: lastNullifier,
                 },
             })
-            const totalSpentEncrypted = logs[0].args.encryptedTotalMinted as Hex;
-            totalSpent = await decryptTotalSpend({ totalSpentEncrypted: totalSpentEncrypted, viewingKey: BigInt(viewingKey) });
+            const totalMintedEncrypted = logs[0].args.encryptedTotalMinted as Hex;
+            totalMinted = await decryptTotalMinted({ totalMintedEncrypted: totalMintedEncrypted, viewingKey: BigInt(viewingKey) });
         }
     }
 
-    const totalReceived = await wormholeTokenFull.read.balanceOf([burnAccount.burnAddress]);
-    const nothingHappened = prevSyncFields?.totalBurned !== undefined && totalReceived === BigInt(prevSyncFields.totalBurned) && initialAccountNonce === accountNonce
+    const totalBurned = await wormholeTokenFull.read.balanceOf([burnAccount.burnAddress]);
+    const nothingHappened = prevSyncFields?.totalBurned !== undefined && totalBurned === BigInt(prevSyncFields.totalBurned) && initialAccountNonce === accountNonce
     const syncedBurnAccount = burnAccount as SyncedBurnAccount
     syncedBurnAccount.syncData ??= {}
     syncedBurnAccount.syncData[chainId] ??= {}
     const lastSyncedBlock = toHex(blockNumberBeforeSync)
-    syncedBurnAccount.syncData[chainId][contractAddress] = {
-        totalSpent: toHex(totalSpent),
+    syncedBurnAccount.syncData[chainId][tokenAddress] = {
+        totalMinted: toHex(totalMinted),
         accountNonce: toHex(accountNonce),
-        totalBurned: toHex(totalReceived),
-        spendableBalance: toHex(totalReceived - totalSpent),
+        totalBurned: toHex(totalBurned),
+        spendableBalance: toHex(totalBurned - totalMinted),
         lastSyncedBlock,
         // TODO maybe remove minProvableBlock, technically it's the last block accountNonce got update or the last tx the burn account received. Which ever is lowest. But then i need to scan for that tx when it received something. Not worth the rpc calls
         // Nothing happened rule also works, but not totally accurate. It's never too low, but usually too high. Maybe not minProvableBlock, but knownLowSafeProvableBlock. You can look for lower if you want
@@ -238,19 +238,19 @@ export async function syncBurnAccount(burnAccount: BurnAccount, contractAddress:
  * @returns 
  */
 export async function syncMultipleBurnAccounts(
-    BurnViewKeyManager: BurnViewKeyManager, contractAddress: Address, archiveNode: PublicClient,
+    burnViewKeyManager: BurnViewKeyManager, tokenAddress: Address, archiveNode: PublicClient,
     { burnAddressesToSync, ethAccounts, fullNode, maxNonce, chainId }: { fullNode?: PublicClient, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex }) {
-    const allBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, { ethAccounts })
-    burnAddressesToSync ??= allBurnAccounts.map((v) => v.burnAddress)
+    const allBurnAccounts = getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts })
+    burnAddressesToSync = burnAddressesToSync ? burnAddressesToSync.map((a)=>getAddress(a)): allBurnAccounts.map((v) =>getAddress(v.burnAddress)) 
     const syncedBurnAccounts = await Promise.all(allBurnAccounts.map((burnAccount) => {
-        if (burnAddressesToSync.includes(burnAccount.burnAddress)) {
-            return syncBurnAccount(burnAccount, contractAddress, archiveNode, { fullNode, maxNonce, chainId })
+        if (burnAddressesToSync.includes(getAddress(burnAccount.burnAddress))) {
+            return syncBurnAccount(burnAccount, tokenAddress, archiveNode, { fullNode, maxNonce, chainId })
         } else {
             return burnAccount
         }
     }))
-    await Promise.all(syncedBurnAccounts.map((burnAccount) => BurnViewKeyManager.updateBurnAccount(burnAccount)))
-    return BurnViewKeyManager
+    await Promise.all(syncedBurnAccounts.map((burnAccount) => burnViewKeyManager.updateBurnAccount(burnAccount)))
+    return burnViewKeyManager
 }
 
 // export async function isSyncedPrivateWallet({ BurnViewKeyManager, wormholeToken }: { BurnViewKeyManager: SyncedPrivateWallet | UnsyncedPrivateWallet, wormholeToken: WormholeToken | WormholeTokenTest }) {

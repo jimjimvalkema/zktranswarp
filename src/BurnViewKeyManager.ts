@@ -1,14 +1,13 @@
 // PrivateWallet is a wrapper that exposes some of viem's WalletClient functions and requires them to only ever use one ethAccount
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
-import { getAddress, hashMessage, padHex, toHex } from "viem";
-import type { BurnAccount, PubKeyHex, BurnAccountBase, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, DerivedBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, WormholeToken, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData, UnknownBurnAccountRecoverable, UnknownBurnAccountImportable, DerivedBurnAccountImportable } from "./types.ts"
+import { hashMessage, padHex, toHex } from "viem";
+import type { BurnAccount, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData, UnknownBurnAccountRecoverable, UnknownBurnAccountImportable, DerivedBurnAccountImportable } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, verifyPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
-import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getWormholeTokenContract, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
-import { BurnAccountSyncFieldsSchema, ExportedViewKeyDataCombinedSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
+import { BurnAccountSyncFieldsSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
@@ -24,17 +23,11 @@ import { syncBurnAccount } from "./syncing.ts";
  * 
  * @TODO remove default. BurnWallet will do default behavior, this should only store burnAccounts
  * @TODO rename to burnAccountManager
- * @TODO make burnAccount sync data specific per chainId=>contractAddress, right now we will have bugs when used with multiple tokens
+ * @TODO make burnAccount sync data specific per chainId=>tokenAddress, right now we will have bugs when used with multiple tokens
  */
 export class BurnViewKeyManager {
     viemWallet: WalletClient
     readonly privateData: FullViewKeyData;
-
-    // TODO remove this BurnWallet should be the only one holding default
-    readonly defaults: {
-        acceptedChainIds: bigint[];
-        chainId: bigint;
-    }
 
     /**
      * @param viemWallet
@@ -47,8 +40,8 @@ export class BurnViewKeyManager {
      */
     constructor(
         viemWallet: WalletClient,
-        { powDifficulty, viewKeyData, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1n], chainId, ethAddress }:
-            { powDifficulty?: bigint, viewKeyData?: FullViewKeyData, viewKeySigMessage?: string, acceptedChainIds?: bigint[], chainId?: bigint, ethAddress?: Address } = {}
+        { viewKeyData, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId, ethAddress }:
+            { viewKeyData?: FullViewKeyData, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number, ethAddress?: Address } = {}
     ) {
         this.viemWallet = viemWallet
         ethAddress ??= viemWallet.account?.address ? viemWallet.account?.address : "0x0000000000000000000000000000000000000000" as Address
@@ -59,17 +52,12 @@ export class BurnViewKeyManager {
             if (acceptedChainIds.length === 1) {
                 chainId = acceptedChainIds[0]
             } else {
-                if (acceptedChainIds.includes(1n)) {
-                    chainId = 1n
+                if (acceptedChainIds.includes(1)) {
+                    chainId = 1
                 } else {
                     throw new Error(`chainId needs to be set. example: new PrivateWallet(viemWallet,{chainId:${Number(acceptedChainIds[0])},acceptedChainIds:[${acceptedChainIds.map((v => Number(v) + "n")).toString()}]})`)
                 }
             }
-        }
-
-        this.defaults = {
-            acceptedChainIds: acceptedChainIds,
-            chainId: chainId,
         }
 
         // init this.viewKeyData
@@ -111,10 +99,10 @@ export class BurnViewKeyManager {
         }
     }
 
-    #createBurnAccountsKeys({ chainId, difficulty, ethAccount }: { chainId: bigint, difficulty: bigint, ethAccount: Address }) {
-        const difficultyPadded = toHex(difficulty, { size: 32 })
-        const chainIdPadded = toHex(chainId, { size: 32 })
-        this.#createBurnAccountsKeysHex({ chainIdHex: chainIdPadded, difficultyHex: difficultyPadded, ethAccount })
+    #createBurnAccountsKeys({ chainId, difficulty, ethAccount }: { chainId: number, difficulty: Hex, ethAccount: Address }) {
+        const difficultyPadded = padHex(difficulty, { size: 32 })
+        const chainIdHex = toHex(chainId)
+        this.#createBurnAccountsKeysHex({ chainIdHex: chainIdHex, difficultyHex: difficultyPadded, ethAccount })
 
     }
 
@@ -124,13 +112,13 @@ export class BurnViewKeyManager {
         this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyHex] ??= { derivedBurnAccounts: [], unknownBurnAccounts: {} };
     }
 
-    #getBurnAccount(ethAccount: Address, chainId: Hex, difficulty: Hex, viewingKeyIndex: number, burnAddress: Address) {
-        const chainIdPadded = padHex(chainId, { size: 32 })
+    #getBurnAccount(ethAccount: Address, chainId: number, difficulty: Hex, viewingKeyIndex: number, burnAddress: Address) {
         const difficultyPadded = padHex(difficulty, { size: 32 })
+        const chainIdHex = toHex(chainId)
         if (viewingKeyIndex) {
-            return this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].derivedBurnAccounts[viewingKeyIndex]
+            return this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyPadded].derivedBurnAccounts[viewingKeyIndex]
         } else {
-            return this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].unknownBurnAccounts[burnAddress]
+            return this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyPadded].unknownBurnAccounts[burnAddress]
         }
     }
 
@@ -142,12 +130,11 @@ export class BurnViewKeyManager {
         // extra safety, if burnAccount.difficulty is not padded this wont pad it
         // but key used for storage is because if it ins't duplicate entries can be created
         const difficultyPadded = padHex(burnAccount.difficulty, { size: 32 })
-        const chainIdPadded = padHex(burnAccount.chainId, { size: 32 })
-        this.#createBurnAccountsKeysHex({ chainIdHex: chainIdPadded, difficultyHex: difficultyPadded, ethAccount: burnAccount.ethAccount })
+        this.#createBurnAccountsKeysHex({ chainIdHex: burnAccount.chainId, difficultyHex: difficultyPadded, ethAccount:burnAccount.ethAccount })
         if (isDerivedBurnAccount(burnAccount)) {
-            this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[chainIdPadded][difficultyPadded].derivedBurnAccounts[burnAccount.viewingKeyIndex] = burnAccount
+            this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[burnAccount.chainId][difficultyPadded].derivedBurnAccounts[burnAccount.viewingKeyIndex] = burnAccount
         } else {
-            this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[chainIdPadded][difficultyPadded].unknownBurnAccounts[burnAccount.burnAddress] = burnAccount
+            this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[burnAccount.chainId][difficultyPadded].unknownBurnAccounts[burnAccount.burnAddress] = burnAccount
         }
     }
 
@@ -217,43 +204,48 @@ export class BurnViewKeyManager {
      * @throws {Error} If a provided `powNonce` fails verification.
      */
     async createBurnAccount(
-        difficulty: bigint,
-        { isDeterministic, spendingPubKeyX, ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }:
-            { isDeterministic?: boolean, spendingPubKeyX?: Hex, ethAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: bigint, async?: boolean, viewKeyMessage?: string } = {}
+        chainId: number, difficulty: Hex,
+        { isDeterministic, spendingPubKeyX, signingEthAccount, powNonce, viewingKey, viewingKeyIndex, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }:
+            { isDeterministic?: boolean, spendingPubKeyX?: Hex, signingEthAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: number, async?: boolean, viewKeyMessage?: string } = {}
     ) {
-        ethAccount ??= this.viemWallet.account?.address as Address
+        signingEthAccount ??= this.viemWallet.account?.address as Address
         if (viewingKeyIndex === undefined) {
-            viewingKeyIndex = this.privateData.burnAccounts[ethAccount].detViewKeyCounter
-            this.privateData.burnAccounts[ethAccount].detViewKeyCounter += 1
+            viewingKeyIndex = this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter
+            this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter += 1
         }
 
-        // TODO technically, if a PowNonce is provided, could not be deterministic, But we don't check for that here since it takes too long 
+        // TODO technically, if a PowNonce is provided, could not be deterministic, But we don't check for that here since it takes too long
         isDeterministic ??= viewingKey === undefined && powNonce === undefined;
-        this.#createBurnAccountsKeys({ chainId, difficulty, ethAccount })
+        this.#createBurnAccountsKeys({ chainId, difficulty, ethAccount: signingEthAccount })
         if (isDeterministic) {
-            const preCachedBurnAccounts = getDeterministicBurnAccounts(this, ethAccount, chainId, difficulty)
+            const preCachedBurnAccounts = getDeterministicBurnAccounts(this, signingEthAccount, chainId, difficulty)
             if (preCachedBurnAccounts[viewingKeyIndex]) {
                 return preCachedBurnAccounts[viewingKeyIndex]
             }
         }
-        spendingPubKeyX ??= (await this.getPubKey(ethAccount)).x
-        //TODO check it matches ethAddress maybe? 
+        spendingPubKeyX ??= (await this.getPubKey(signingEthAccount)).x
+        //TODO check it matches ethAddress maybe?
 
-        const viewKeyRoot = BigInt(await this.getDeterministicViewKeyRoot(ethAccount, viewKeyMessage))
+        const viewKeyRoot = BigInt(await this.getDeterministicViewKeyRoot(signingEthAccount, viewKeyMessage))
         //---------
-        const burnAccount = await createBurnAccount({ isDeterministic, ethAccount: ethAccount, viewKeySigMessage: viewKeyMessage, spendingPubKeyX, viewingKeyIndex, viewKeyRoot, powNonce, viewingKey, chainId, difficulty, async })
+        const burnAccount = await createBurnAccount(
+            isDeterministic, spendingPubKeyX, viewKeyRoot, viewKeyMessage, chainId, difficulty, signingEthAccount, viewingKeyIndex,
+            { powNonce, viewingKey, async }
+        )
         this.#addBurnAccount(burnAccount)
         return burnAccount
     }
 
     async getFreshBurnAccount(
-        wormholeTokenAddress: Address, difficulty: bigint, fullNode: PublicClient,
-        { ethAccount, chainId }: { ethAccount?: Address, chainId?: bigint } = {}) {
-        const tokenContract = getWormholeTokenContract(wormholeTokenAddress, { public: fullNode })
+        tokenAddress: Address, fullNode: PublicClient, difficulty: Hex,
+        { signingEthAccount, chainId }: { signingEthAccount?: Address, chainId?: number } = {}
+    ) {
+        chainId ??= await fullNode.getChainId()
+        const tokenContract = getWormholeTokenContract(tokenAddress, { public: fullNode })
         let isUsed: boolean;
         let burnAccount: UnsyncedBurnAccount;
         do {
-            burnAccount = await this.createBurnAccount(difficulty, { ethAccount, chainId })
+            burnAccount = await this.createBurnAccount(chainId, difficulty, { signingEthAccount })
             const balance = await tokenContract.read.balanceOf([burnAccount.burnAddress])
             isUsed = balance !== 0n
 
@@ -290,33 +282,32 @@ export class BurnViewKeyManager {
      *   thread count  assumes most callers don't need large batches.
      */
     async createBurnAccountsBulk(
-        amountOfBurnAccounts: number, difficulty: bigint,
-        { ethAccount, startingViewKeyIndex, chainId, async = false }:
-            { ethAccount?: Address, startingViewKeyIndex?: number, async?: boolean, chainId?: bigint } = {}
+        amountOfBurnAccounts: number, chainId: number, difficulty: Hex,
+        { signingEthAccount, startingViewKeyIndex, async = false }:
+            { signingEthAccount?: Address, startingViewKeyIndex?: number, async?: boolean} = {}
     ) {
-        ethAccount ??= this.viemWallet.account?.address as Address
-        chainId ??= this.defaults.chainId
-        this.#createBurnAccountsKeys({ chainId, ethAccount, difficulty })
-        startingViewKeyIndex ??= this.privateData.burnAccounts[ethAccount].detViewKeyCounter
+        signingEthAccount ??= this.viemWallet.account?.address as Address
+        this.#createBurnAccountsKeys({ chainId, ethAccount: signingEthAccount, difficulty })
+        startingViewKeyIndex ??= this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter
         const burnAccountsPromises = new Array(amountOfBurnAccounts).fill(0).map((v, i) =>
             this.createBurnAccount(
-                difficulty,
-                { ethAccount, viewingKeyIndex: startingViewKeyIndex + i, chainId: chainId, async: async }
+                chainId, difficulty,
+                { signingEthAccount, viewingKeyIndex: startingViewKeyIndex + i, async: async }
             )
         )
 
         const burnAccounts = await Promise.all(burnAccountsPromises)
         const lastIndex = amountOfBurnAccounts + startingViewKeyIndex
-        if (lastIndex > this.privateData.burnAccounts[ethAccount].detViewKeyCounter) {
-            this.privateData.burnAccounts[ethAccount].detViewKeyCounter = lastIndex
+        if (lastIndex > this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter) {
+            this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter = lastIndex
         }
         return burnAccounts
     }
 
     // export
-    exportBurnAccounts(ethAccount: Address, chainId: Hex, difficulty: Hex, opts: { paranoidMode: true }): { derived: BurnAccountRecoverable[], unknown: BurnAccountRecoverable[] };
-    exportBurnAccounts(ethAccount: Address, chainId: Hex, difficulty: Hex, opts?: { paranoidMode?: false }): { derived: (BurnAccountRecoverable | BurnAccountImportable)[], unknown: (BurnAccountRecoverable | BurnAccountImportable)[] };
-    exportBurnAccounts(ethAccount: Address, chainId: Hex, difficulty: Hex, opts?: { paranoidMode: boolean }): { derived: (BurnAccountRecoverable | BurnAccountImportable)[], unknown: (BurnAccountRecoverable | BurnAccountImportable)[] };
+    exportBurnAccounts(ethAccount: Address, chainId: number, difficulty: Hex, opts: { paranoidMode: true }): { derived: BurnAccountRecoverable[], unknown: BurnAccountRecoverable[] };
+    exportBurnAccounts(ethAccount: Address, chainId: number, difficulty: Hex, opts?: { paranoidMode?: false }): { derived: (BurnAccountRecoverable | BurnAccountImportable)[], unknown: (BurnAccountRecoverable | BurnAccountImportable)[] };
+    exportBurnAccounts(ethAccount: Address, chainId: number, difficulty: Hex, opts?: { paranoidMode: boolean }): { derived: (BurnAccountRecoverable | BurnAccountImportable)[], unknown: (BurnAccountRecoverable | BurnAccountImportable)[] };
     /**
      * @param ethAccount 
      * @param chainId 
@@ -324,14 +315,14 @@ export class BurnViewKeyManager {
      * @param opts.paranoidMode - forces all output to {@link BurnAccountRecoverable}, excluding accountNonce and syncBlockNumber for stronger privacy
      */
     exportBurnAccounts(
-        ethAccount: Address, chainId: Hex, difficulty: Hex, { paranoidMode = false } = {}
+        ethAccount: Address, chainId: number, difficulty: Hex, { paranoidMode = false } = {}
     ): { derived: (DerivedBurnAccountRecoverable | DerivedBurnAccountImportable)[], unknown: (UnknownBurnAccountRecoverable | UnknownBurnAccountImportable)[] } {
-        const chainIdPadded = padHex(chainId, { size: 32 });
         const difficultyPadded = padHex(difficulty, { size: 32 });
-        const derived = this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].derivedBurnAccounts.map(
+        const chainIdHex = toHex(chainId)
+        const derived = this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyPadded].derivedBurnAccounts.map(
             (b) => paranoidMode === false ? toImportableDerivedBurnAccount(b) : toRecoverableDerivedBurnAccount(b)
         );
-        const unknown = Object.values(this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].unknownBurnAccounts).map(
+        const unknown = Object.values(this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyPadded].unknownBurnAccounts).map(
             (b) => paranoidMode === false ? toImportableUnknownBurnAccount(b) : toRecoverableUnknownBurnAccount(b)
         );
         return { derived, unknown };
@@ -361,7 +352,7 @@ export class BurnViewKeyManager {
             for (const chainId of Object.keys(ethData.burnAccounts) as Hex[]) {
                 burnAccounts[ethAccount].burnAccounts[chainId] = {};
                 for (const difficulty of Object.keys(ethData.burnAccounts[chainId]) as Hex[]) {
-                    const { derived, unknown } = this.exportBurnAccounts(ethAccount, chainId, difficulty, { paranoidMode: paranoidMode });
+                    const { derived, unknown } = this.exportBurnAccounts(ethAccount, Number(chainId as Hex), difficulty, { paranoidMode: paranoidMode });
                     burnAccounts[ethAccount].burnAccounts[chainId][difficulty] = {
                         derivedBurnAccounts: derived,
                         unknownBurnAccounts: unknown
@@ -378,19 +369,19 @@ export class BurnViewKeyManager {
      * TODO use pLimit so we don't bombard rpc, during this.importBurnAccount
      * @param json 
      * @param wormholeToken 
-     * @param archiveClient 
+     * @param archiveNode 
      * @param param3 
      */
     async importViewKeyWalletData(
-        importedViewKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>, contractAddress: Address, archiveClient: PublicClient,
+        importedViewKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>, tokenAddress: Address, archiveNode: PublicClient,
         { forceReSign = true, forcePow = false, async = false, fullNode }: { forceReSign?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient } = {}
     ) {
-        fullNode ??= archiveClient;
+        fullNode ??= archiveNode;
         this.privateData.detViewKeyRoot = importedViewKeyData.detViewKeyRoot
         this.privateData.viewKeySigMessage = importedViewKeyData.viewKeySigMessage
         const allBurnAccounts = BurnAccountToFlatArrExportedData(importedViewKeyData)
         // also adds all needed keys to this.privateData
-        await Promise.all(allBurnAccounts.map((b) => this.importBurnAccount(b, contractAddress, archiveClient, { forceReSign, forcePow, async, fullNode })))
+        await Promise.all(allBurnAccounts.map((b) => this.importBurnAccount(b, tokenAddress, archiveNode, { forceReSign, forcePow, async, fullNode })))
         for (const ethAccount of Object.keys(importedViewKeyData.burnAccounts)) {
             // only if the count is higher update it
             this.privateData.burnAccounts[ethAccount] ??= {
@@ -409,10 +400,10 @@ export class BurnViewKeyManager {
      * forceReSign: will force recreation of spendingPubKeyX and viewing key (if the derivation is know). Will prompt the user to sign in the case rootViewingKey and/or spendingPubKeyX does not exist in storage yet
      * @param importedBurnAccount 
      * @param wormholeToken 
-     * @param archiveClient 
+     * @param archiveNode 
      * @param param3 
      */
-    async importBurnAccount(importedBurnAccount: AnyBurnAccount, contractAddress: Address, archiveNode: PublicClient,
+    async importBurnAccount(importedBurnAccount: AnyBurnAccount, tokenAddress: Address, archiveNode: PublicClient,
         { forceReSign = true, forcePow = false, async = false, fullNode }: { fullNode?: PublicClient, forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
     ) {
         fullNode ??= archiveNode
@@ -421,11 +412,11 @@ export class BurnViewKeyManager {
         // recreate the full burn account as much as possible, even if keys are already provided. So we can check every key was correct later
         if (idBurnAccount.derivation === "Derived") {
             reCreatedBurnAccount = await this.createBurnAccount(
-                BigInt(idBurnAccount.account.difficulty),
+                Number(idBurnAccount.account.chainId),
+                idBurnAccount.account.difficulty,
                 {
                     isDeterministic: true,
-                    ethAccount: idBurnAccount.account.ethAccount,
-                    chainId: BigInt(idBurnAccount.account.chainId),
+                    signingEthAccount: idBurnAccount.account.ethAccount,
                     viewingKeyIndex: idBurnAccount.account.viewingKeyIndex,
                     viewKeyMessage: idBurnAccount.account.viewKeySigMessage,
                     powNonce: forcePow === false && "powNonce" in idBurnAccount.account ? BigInt(idBurnAccount.account.powNonce) : undefined,
@@ -438,11 +429,11 @@ export class BurnViewKeyManager {
             // viewingKey cant be recreated, so always used from importedBurnAccount. 
             // viewingKeyIndex, viewKeyMessage, does not exist and is omitted. rest is same as above
             reCreatedBurnAccount = await this.createBurnAccount(
-                BigInt(idBurnAccount.account.difficulty),
+                Number(idBurnAccount.account.chainId),
+                idBurnAccount.account.difficulty,
                 {
                     isDeterministic: false,
-                    ethAccount: idBurnAccount.account.ethAccount,
-                    chainId: BigInt(idBurnAccount.account.chainId),
+                    signingEthAccount: idBurnAccount.account.ethAccount,
                     // viewingKeyIndex: idBurnAccount.account.viewingKeyIndex,
                     // viewKeyMessage: idBurnAccount.account.viewKeySigMessage,
                     powNonce: forcePow === false && idBurnAccount.account.powNonce ? BigInt(idBurnAccount.account.powNonce) : undefined,
@@ -473,51 +464,54 @@ export class BurnViewKeyManager {
         if (idBurnAccount.state === "Importable" || idBurnAccount.state === "Synced") {
             // effectively checks if that nonce is valid. If it's too high errors, too low it just keeps it and wont sync further
             // @TODO do this for all contracts in there
-            // find the accountNonce for this contractAddress from the imported syncData
+            // find the accountNonce for this tokenAddress from the imported syncData
             const importedSyncData = idBurnAccount.account.syncData
             let maxNonce: bigint | undefined
             if (importedSyncData) {
                 for (const chainContracts of Object.values(importedSyncData)) {
-                    if (chainContracts[contractAddress]) {
-                        maxNonce = BigInt(chainContracts[contractAddress].accountNonce) + 1n
+                    if (chainContracts[tokenAddress]) {
+                        maxNonce = BigInt(chainContracts[tokenAddress].accountNonce) + 1n
                         break
                     }
                 }
             }
-            await syncBurnAccount(reCreatedBurnAccount, contractAddress, archiveNode, { fullNode, maxNonce })
+            await syncBurnAccount(reCreatedBurnAccount, tokenAddress, archiveNode, { fullNode, maxNonce })
         }
     }
 }
 
 
 async function createBurnAccount(
-    { isDeterministic, spendingPubKeyX, viewKeyRoot, viewKeySigMessage, ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId, difficulty, async = false }:
-        { isDeterministic: boolean, spendingPubKeyX: Hex, viewKeyRoot: bigint, viewKeySigMessage: string, ethAccount: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex: number, chainId: bigint, difficulty: bigint, async?: boolean }
+    isDeterministic: boolean, spendingPubKeyX: Hex, viewKeyRoot: bigint, viewKeySigMessage: string,
+    chainId: number, difficulty: Hex, ethAccount: Address, viewingKeyIndex: number,
+    { powNonce, viewingKey, async = false }: { powNonce?: bigint, viewingKey?: bigint, async?: boolean } = {}
 ) {
     viewingKey ??= hashViewKeyFromRoot(
         viewKeyRoot,
         BigInt(viewingKeyIndex)
     )
+    const chainIdInt = BigInt(chainId)
+    const difficultyInt = BigInt(difficulty)
 
-    const blindedAddressDataHash = hashBlindedAddressData({ spendingPubKeyX: spendingPubKeyX, viewingKey: viewingKey as bigint, chainId: chainId })
+    const blindedAddressDataHash = hashBlindedAddressData({ spendingPubKeyX: spendingPubKeyX, viewingKey: viewingKey as bigint, chainId: chainIdInt })
 
     if (powNonce) {
-        const isValidPowNonce = verifyPowNonce({ difficulty: difficulty, blindedAddressDataHash: blindedAddressDataHash, powNonce: powNonce })
+        const isValidPowNonce = verifyPowNonce({ difficulty: difficultyInt, blindedAddressDataHash: blindedAddressDataHash, powNonce: powNonce })
         if (isValidPowNonce === false) {
             const powHash = hashPow({ blindedAddressDataHash, powNonce })
             throw new Error(
                 `Invalid powNonce provided. Please provide a valid one or set to undefined so a new valid one can be found.` +
                 `\npowNonce: ${toHex(powNonce, { size: 32 })}` +
-                `\ndifficulty: ${toHex(difficulty, { size: 32 })}` +
+                `\ndifficulty: ${padHex(difficulty, { size: 32 })}` +
                 `\npowHash: ${toHex(powHash, { size: 32 })}`
             )
         }
     }
 
     if (async) {
-        powNonce ??= await findPoWNonceAsync({ blindedAddressDataHash, startingValue: viewingKey as bigint, difficulty: difficulty }) as bigint
+        powNonce ??= await findPoWNonceAsync({ blindedAddressDataHash, startingValue: viewingKey as bigint, difficulty: difficultyInt }) as bigint
     } else {
-        powNonce ??= findPoWNonce({ blindedAddressDataHash, startingValue: viewingKey as bigint, difficulty: difficulty })
+        powNonce ??= findPoWNonce({ blindedAddressDataHash, startingValue: viewingKey as bigint, difficulty: difficultyInt })
     }
 
     const burnAddress = getBurnAddress({ blindedAddressDataHash: blindedAddressDataHash, powNonce: powNonce })
@@ -528,7 +522,7 @@ async function createBurnAccount(
         chainId: toHex(chainId),
         blindedAddressDataHash: toHex(blindedAddressDataHash, { size: 32 }),
         spendingPubKeyX: spendingPubKeyX,
-        difficulty: toHex(difficulty, { size: 32 }),
+        difficulty: padHex(difficulty, { size: 32 }),
         ethAccount: ethAccount,
     }
 

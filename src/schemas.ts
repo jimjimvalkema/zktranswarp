@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isHex, isAddress } from "viem";
+import { isHex, isAddress, getAddress } from "viem";
 
 // --- zodified viem types  ---------------------------------------------------------------
 
@@ -10,7 +10,7 @@ const HexSchema = z.custom<import("viem").Hex>(
 const AddressSchema = z.custom<import("viem").Address>(
     (val) => typeof val === "string" && isAddress(val),
     "Invalid address"
-);
+).transform((val) => getAddress(val as string));
 
 // --- base schemas -------------------------------------------------------------
 
@@ -37,7 +37,7 @@ export const BurnAccountBaseSchema = z.object({
 export const BurnAccountSyncFieldsSchema = z.object({
     // state
     accountNonce: HexSchema,
-    totalSpent: HexSchema,
+    totalMinted: HexSchema,
     totalBurned: HexSchema,
     spendableBalance: HexSchema,
 
@@ -82,7 +82,7 @@ export const BurnAccountImportableSyncDataSchema = z.record(
  * Does not have `derivationKeys` = `viewingKeyIndex` and `viewKeySigMessage`
  * 
  * UnsyncedTypes:
- * These are the base types, does not have sync data like totalSpent, accountNonce
+ * These are the base types, does not have sync data like totalMinted, accountNonce
  * All keys required and readonly
  * 
  * SyncedTypes:

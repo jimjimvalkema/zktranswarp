@@ -26,17 +26,17 @@ export function getViewingKey({ signature }: { signature: Hex }) {
 }
 
 export async function signPrivateTransfer(
-    BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address 
+    burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address
 ): Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }>;
 
 export async function signPrivateTransfer(
-    BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address 
+    burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address
 ): Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }>;
 
-// TODO make ethAccount optional, and have BurnViewKeyManager have a list that the user can order, where top one is the default account used
-export async function signPrivateTransfer(BurnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, ethAccount:Address):
+// TODO make signingEthAccount optional, and have BurnViewKeyManager have a list that the user can order, where top one is the default account used
+export async function signPrivateTransfer(burnViewKeyManager: BurnViewKeyManager, signatureInputs: SignatureInputs | SignatureInputsWithFee, chainId: number, tokenAddress: Address, signingEthAccount: Address):
     Promise<{ viemFormatSignature: { signature: Hex; pubKeyX: Hex; pubKeyY: Hex; }, signatureData: SignatureData, signatureHash: Hex }> {
-    chainId ??= await BurnViewKeyManager.viemWallet.getChainId()
+    chainId ??= await burnViewKeyManager.viemWallet.getChainId()
     const domain = getPrivateReMintDomain(chainId, signatureInputs.contract)
 
     const baseMessage = {
@@ -67,14 +67,14 @@ export async function signPrivateTransfer(BurnViewKeyManager: BurnViewKeyManager
         }
         // hash and sign: else case does exactly the same but typescript freaks out if outside of if clause
         hash = hashTypedData({ domain, types, primaryType, message })
-        signature = await BurnViewKeyManager.viemWallet.signTypedData({ account: ethAccount, domain, types, primaryType, message })
+        signature = await burnViewKeyManager.viemWallet.signTypedData({ account: signingEthAccount, domain, types, primaryType, message })
     } else {
         types = PRIVATE_RE_MINT_712_TYPES
         primaryType = "reMint" as const
         message = baseMessage
         // hash and sign: same as above but typescript freaks out if outside of if clause
         hash = hashTypedData({ domain, types, primaryType, message })
-        signature = await BurnViewKeyManager.viemWallet.signTypedData({ account: ethAccount, domain, types, primaryType, message })
+        signature = await burnViewKeyManager.viemWallet.signTypedData({ account: signingEthAccount, domain, types, primaryType, message })
     }
     const { pubKeyX, pubKeyY } = await extractPubKeyFromSig({ hash, signature })
     return {

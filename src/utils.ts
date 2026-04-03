@@ -141,21 +141,20 @@ export function getAllBurnAccounts(privateData: FullViewKeyData,
     { difficulties, chainIds, ethAccounts, deterministicAccounts = true, nonDeterministicAccounts = true }:
         { difficulties?: bigint[], chainIds?: bigint[], ethAccounts?: Address[], deterministicAccounts?: boolean, nonDeterministicAccounts?: boolean } = {}
 ): BurnAccount[] {
-    const difficultiesHex = difficulties !== undefined ? difficulties.map((diff) => toHex(diff, { size: 32 }), { size: 32 }) : undefined;
-    const chainIdsHex = chainIds !== undefined ? chainIds.map((chainId) => toHex(chainId, { size: 32 }), { size: 32 }) : undefined;
+    const difficultiesHex = difficulties !== undefined ? difficulties.map((diff) => toHex(diff, { size: 32 })) : undefined;
+    const chainIdsHex = chainIds !== undefined ? chainIds.map((chainId) => toHex(chainId)) : undefined;
 
     return filterBurnAccounts(privateData.burnAccounts, difficultiesHex, chainIdsHex, ethAccounts, deterministicAccounts, nonDeterministicAccounts)
 }
 
 // TODO move this into BurnViewKeyManager
 // it requires every function that requires a class as input, should just use `this` instead
-export function getDeterministicBurnAccounts(burnWallet: BurnViewKeyManager, ethAccount: Address, chainId: bigint, difficulty: bigint
-
-
+export function getDeterministicBurnAccounts(
+    burnWallet: BurnViewKeyManager, ethAccount: Address, chainId: number, difficulty: Hex
 ): BurnAccount[] {
-    const difficultyPadded = toHex(difficulty, { size: 32 })
-    const chainIdPadded = toHex(chainId, { size: 32 })
-    return burnWallet.privateData.burnAccounts[ethAccount].burnAccounts[chainIdPadded][difficultyPadded].derivedBurnAccounts
+    const difficultyPadded = padHex(difficulty, { size: 32 })
+    const chainIdHex = toHex(chainId)
+    return burnWallet.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyPadded].derivedBurnAccounts
 }
 
 // TODO

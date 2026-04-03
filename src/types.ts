@@ -67,7 +67,7 @@ export interface MerkleData extends InputMap {
 }
 
 export interface SpendableBalanceProof {
-    totalSpendMerkleProofs: MerkleData,
+    totalMintedMerkleProofs: MerkleData,
     totalBurnedMerkleProofs: MerkleData,
     root: Hex
 }
