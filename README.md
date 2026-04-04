@@ -55,10 +55,7 @@ Technically nothing is actually burned or reMinted, But that is the original lan
 Instead docs should just explain that you can treat the accounting like that (spent + received)  
 # TODO rename repo
 Something like, erc20 with native plausible deniability
-# TODO lower 100in circuit
-Estimation goes over the tx gas limit, rn the workaround is to hardcode a lower limit, but as the tree grow this will break.  
-I think it's best to reduce the size of the circuit to 32, since that's plenty and it saves a lott on merkle tree inserts and logs.  
-Also the encrypted total amount spent (aka reMinted :p ) can also be reduced in size to save gas.  
+# TODO off by one bug in gigaBridge/ultils scanEventInchunks
 
 ## optimizations
 Merkle tree: The balances tracked in the merkle tree update on **every** transfer, even if a user never intends to use any privacy. This is to preserve plausible deniability. However this can optimized by:

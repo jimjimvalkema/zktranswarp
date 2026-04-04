@@ -443,9 +443,18 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
     }
 
     function _processCall(SignatureInputs calldata _signatureInputs) private {
-        if (_signatureInputs.callData.length != 0 || _signatureInputs.callValue > 0) { 
+        if (_signatureInputs.callData.length != 0 || _signatureInputs.callValue > 0) {
             (bool success,) = _signatureInputs.recipient.call{value:_signatureInputs.callValue}(_signatureInputs.callData);
             require(_signatureInputs.callCanFail || success, "call failed and was not allowed to fail");
         }
+    }
+
+    function getAcceptedChainIds() public view returns (uint256[] memory) {
+        uint256[] memory chainIds = new uint256[](AMOUNT_OF_CHAIN_IDS + 1);
+        for (uint256 i = 0; i < AMOUNT_OF_CHAIN_IDS; i++) {
+            chainIds[i] = ACCEPTED_CHAIN_IDS[i];
+        }
+        chainIds[AMOUNT_OF_CHAIN_IDS] = block.chainid;
+        return chainIds;
     }
 }

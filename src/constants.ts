@@ -1,17 +1,18 @@
-import type { Address } from "viem";
-import { getAddress, padHex } from "viem"
+import type { Address, Hex } from "viem";
+import { getAddress, padHex, toHex } from "viem"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt";
+import deployedAddressesSepolia from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
 
 // ---- contract args -------------
 // at 17n you got 10 years of bitcoin network doing hashes non stop
 export const ADDED_BITS_SECURITY = 8n; // 88 bits total, ~2.5s (max ~10s) pow time , $2.6 trillion attack cost ($10b * 2**(16/2)), 
-export const POW_BITS = ADDED_BITS_SECURITY*2n; //  ADDED_BITS_SECURITY*2 because PoW is only added to burn address, so problem only becomes half as hard
-export const POW_DIFFICULTY = 2n**(256n-POW_BITS)-1n//16n ** (64n - POW_LEADING_ZEROS) - 1n;
+export const POW_BITS = ADDED_BITS_SECURITY * 2n; //  ADDED_BITS_SECURITY*2 because PoW is only added to burn address, so problem only becomes half as hard
+export const POW_DIFFICULTY = 2n ** (256n - POW_BITS) - 1n//16n ** (64n - POW_LEADING_ZEROS) - 1n;
 // i recommend picking a number far below the cost of attack and that is max 1% of total supply.
 // if needed you can periodically and programmatically change this number in the contract instead.
 // How ever do know it's public input. Meaning even the slightest change will invalidate pending tx, so please only update that number infrequently!
 // i chose this number since my token is ony a demo and has a uncapped supply
-export const RE_MINT_LIMIT = 100_000_000n*10n**18n; 
+export const RE_MINT_LIMIT = 100_000_000n * 10n ** 18n;
 
 // ---- circuit constants ---------------------
 // domain separators
@@ -63,7 +64,7 @@ export const EMPTY_UNFORMATTED_MERKLE_PROOF: LeanIMTMerkleProof<bigint> = {
     root: 0n,
     leaf: 0n,
     index: 0,
-    siblings: [], 
+    siblings: [],
 }
 export const zeroAddress = getAddress(padHex("0x00", { size: 20 }))
 // -----------------------------
@@ -71,7 +72,7 @@ export const zeroAddress = getAddress(padHex("0x00", { size: 20 }))
 
 // ---------- eip 712 ----------------------
 
-export function getPrivateReMintDomain(chainId:number, verifyingContract:Address, name: string, version: string) {
+export function getPrivateReMintDomain(chainId: number, verifyingContract: Address, name: string, version: string) {
     return {
         name: name,
         version: version,
@@ -105,7 +106,7 @@ export const PRIVATE_RE_MINT_RELAYER_712_TYPES = {
         { name: "tokensPerEthPrice", type: "uint256" },
         { name: "maxFee", type: "uint256" },
         { name: "amountForRecipient", type: "uint256" },
-        { name: "relayerBonus", type: "uint256"},
+        { name: "relayerBonus", type: "uint256" },
         { name: "estimatedGasCost", type: "uint256" },
         { name: "estimatedPriorityFee", type: "uint256" },
         { name: "refundAddress", type: "address" },
@@ -114,3 +115,18 @@ export const PRIVATE_RE_MINT_RELAYER_712_TYPES = {
 } as const;
 
 // --------------------
+export const RE_MINT_RELAYER_GAS_DEFAULT_L1 = {
+    [2]: toHex(100000n),
+    [32]: toHex(100000n),
+    [100]: toHex(100000n),
+} as const
+
+// TODO if using create2 we could also set other chainIds
+export const RE_MINT_RELAYER_GAS: { [chainId: Hex]: { [contract: Address]: { [circuitSize: number]: Hex } } } = {
+    // [toHex(1)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
+    // [toHex(31337)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
+    [toHex(11155111)]: {
+        [deployedAddressesSepolia["wormholeToken#WormholeToken"]]: RE_MINT_RELAYER_GAS_DEFAULT_L1
+    },
+    //[toHex(17000)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
+} as const

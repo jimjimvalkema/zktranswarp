@@ -35,15 +35,21 @@ export interface SignatureData extends InputMap {
 }
 
 export interface FeeData {
-    tokensPerEthPrice: Hex,
-    maxFee: Hex,
-    amountForRecipient: Hex,
-    relayerBonus: Hex,
-    estimatedGasCost: Hex,
-    estimatedPriorityFee: Hex,
-    refundAddress: Address,
-    relayerAddress: Address,
+    tokensPerEthPrice: Hex;
+    maxFee: Hex;
+    amountForRecipient: Hex;
+    relayerBonus: Hex;
+    estimatedGasCost: Hex;
+    estimatedPriorityFee: Hex;
+    refundAddress: Address;
+    relayerAddress: Address;
 }
+
+export type FeeDataOptionals = Omit<FeeData, 'estimatedGasCost' | 'estimatedPriorityFee' | 'tokensPerEthPrice'> & {
+    estimatedGasCost?: Hex;
+    estimatedPriorityFee?: Hex;
+    tokensPerEthPrice?: Hex;
+};
 
 export interface SignatureInputs {
     contract: Address,
@@ -175,9 +181,10 @@ export interface RelayInputs {
 }
 
 /**backend per circuit size */
-export type BackendPerSize =  {[key: number]:UltraHonkBackend}
+export type BackendPerSize = { [key: number]: UltraHonkBackend }
 //functions
 export type CreateRelayerInputsOpts = {
+    burnAccountSelector?:  (a: SpendableBurnAccount, b: SpendableBurnAccount) => number,
     fullNode?: PublicClient
     threads?: number;
     callData?: Hex;
@@ -202,6 +209,7 @@ export type CreateRelayerInputsOpts = {
     maxTreeDepth?: number;
     eip712Name?: string;
     eip712Version?: string;
+    allowedChainIds?: Hex[]
 };
 
 export interface BurnAccountProof {
@@ -215,16 +223,19 @@ export interface FakeBurnAccountProof {
     burnAccount: FakeBurnAccount,
 }
 
-export interface ClientPerChainId {[chainId:number]:PublicClient}
+export interface ClientPerChainId { [chainId: number]: PublicClient }
 
 export interface WormholeContractConfig {
     VERIFIER_SIZES: number[],
-    VERIFIERS_PER_SIZE:{[size:number]:Address}
+    VERIFIERS_PER_SIZE: { [size: number]: Address }
     POW_DIFFICULTY: Hex,
     RE_MINT_LIMIT: Hex,
     MAX_TREE_DEPTH: number,
     IS_CROSS_CHAIN: boolean,
     ACCEPTED_CHAIN_IDS: Hex[],
     EIP712_NAME: string,
-    EIP712_VERSION: string
+    EIP712_VERSION: string,
+    decimalsTokenPrice: Hex
 }
+
+export type SpendableBurnAccount = { burnAccount: SyncedBurnAccount, chainId: Hex, contract: Address, spendableBalance: bigint } 

@@ -2,8 +2,8 @@
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { createPublicClient, custom, getAddress, getContract, padHex, toHex } from "viem";
-import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, WormholeToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, WormholeContractConfig } from "./types.ts"
-import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
+import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, WormholeToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, WormholeContractConfig, FeeDataOptionals } from "./types.ts"
+import { RE_MINT_RELAYER_GAS, RE_MINT_RELAYER_GAS_DEFAULT_L1, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { LeanIMT } from "@zk-kit/lean-imt";
 import { poseidon2IMTHashFunc } from "./syncing.ts";
@@ -39,8 +39,8 @@ export class BurnWallet {
      */
     constructor(
         viemWallet: WalletClient,
-        { powDifficulty, archiveNodes, fullNodes, merkleTrees, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId }:
-            { powDifficulty?: bigint, archiveNodes?: ClientPerChainId, fullNodes?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, walletDataImport?: string, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number } = {}
+        { archiveNodes, fullNodes, merkleTrees, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId }:
+            { archiveNodes?: ClientPerChainId, fullNodes?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, walletDataImport?: string, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number } = {}
     ) {
         if (viemWallet.account === undefined) {
             throw new Error(`viem wallet not created with account set. pls do: 
@@ -85,17 +85,6 @@ export class BurnWallet {
     async defaultSigner() {
         const staticAccount = this.viemWallet.account?.address as Address
         return staticAccount
-        // await this.viemWallet.getAddresses())[0] is unreliable, in metamask it returns currently selected account
-        // but in walletconnect (TODO check) and hardhat it just gives the array in original order
-        // const dynamicAccount = (await this.viemWallet.getAddresses())[0]
-
-        // if (staticAccount && (getAddress(staticAccount) !== getAddress(dynamicAccount))) {
-        //     const requestedAccount = (await this.viemWallet.requestAddresses())[0]
-        //     return requestedAccount
-        // }
-        // else {
-        //     return dynamicAccount
-        // }
     }
 
     async #getMerkleTree(address: Address, chainId?: number) {
@@ -147,11 +136,12 @@ export class BurnWallet {
             const reMintLimit = wormholeTokenFull.read.RE_MINT_LIMIT();
             const maxTreeDepth = wormholeTokenFull.read.MAX_TREE_DEPTH();
             const isCrossChain = wormholeTokenFull.read.IS_CROSS_CHAIN()
+            const decimalsTokenPrice = wormholeTokenFull.read.decimalsTokenPrice()
 
             const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull);
             const acceptedChainIds = getAcceptedChainIdFromContract(wormholeTokenFull)
-            const verifiersEntries = Promise.all((await verifierSizes).map(async (size, index) => [size, await wormholeTokenFull.read.VERIFIERS_PER_SIZE([size])]))
             const eip712Domain = wormholeTokenFull.read.eip712Domain()
+            const verifiersEntries = Promise.all((await verifierSizes).map(async (size, index) => [size, await wormholeTokenFull.read.VERIFIERS_PER_SIZE([size])]))
 
             const config: WormholeContractConfig = {
                 VERIFIER_SIZES: await verifierSizes,
@@ -160,9 +150,10 @@ export class BurnWallet {
                 RE_MINT_LIMIT: await reMintLimit,
                 MAX_TREE_DEPTH: await maxTreeDepth,
                 IS_CROSS_CHAIN: await isCrossChain,
-                ACCEPTED_CHAIN_IDS: (await acceptedChainIds).map((id)=>toHex(id)),
+                ACCEPTED_CHAIN_IDS: (await acceptedChainIds).map((id) => toHex(id)),
                 EIP712_NAME: (await eip712Domain)[1],
                 EIP712_VERSION: (await eip712Domain)[2],
+                decimalsTokenPrice: toHex(await decimalsTokenPrice)
             }
             this.contractConfig[chainIdHex][address] = config;
         }
@@ -350,30 +341,62 @@ export class BurnWallet {
         }
     }
 
+    async getTokenPrice(token: Address, { chainId }: { chainId?: number } = {}):Promise<Hex> {
+        //https://claude.ai/chat/14f414da-d400-4a37-ad68-1bb11894bc83
+        chainId ??= await this.viemWallet.getChainId()
+        throw Error(`TODO implements this! \n Could not find a price on uniswap v2,v3 or v4 on token ${token} on chainId:${chainId}. Please manually provide the eth price`)
+    }
+
+    async #getGasCost(circuitSize: number, token: Address, { chainId, type = "relayer" }: { chainId?: number, type?: "relayer" } = {}) {
+        chainId ??= await this.viemWallet.getChainId()
+        if (type === "relayer") {
+            if (
+                toHex(chainId) in RE_MINT_RELAYER_GAS &&
+                token in RE_MINT_RELAYER_GAS[toHex(chainId)] &&
+                circuitSize in RE_MINT_RELAYER_GAS[toHex(chainId)][token]
+            ) {
+                return RE_MINT_RELAYER_GAS[toHex(chainId)][token][circuitSize]
+            } else {
+                console.warn(`token: ${token} chainId: ${toHex(chainId)} with circuit size: ${circuitSize}. \n not found, defaulting to reference implementation gas estimation on ethereum L1`)
+            }
+        }
+    }
+
     // TODO cache proof backend
     async proofReMint(
         recipient: Address, amount: bigint, tokenAddress: Address,
-        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree"> & { signingEthAccount?: Address, chainId?: number, feeData: FeeData }
+        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData"> & { signingEthAccount?: Address, chainId?: number, feeData: FeeData }
     ): Promise<RelayInputs>;
     async proofReMint(
         recipient: Address, amount: bigint, tokenAddress: Address,
-        opts?: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree"> & { signingEthAccount?: Address, chainId?: number, feeData?: undefined }
+        opts?: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData"> & { signingEthAccount?: Address, chainId?: number, feeData?: undefined }
     ): Promise<SelfRelayInputs>;
     async proofReMint(
         recipient: Address, amount: bigint, tokenAddress: Address,
-        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree"> & { signingEthAccount?: Address, chainId?: number, feeData?: FeeData } = {}
+        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData"> & { signingEthAccount?: Address, chainId?: number, feeData?: FeeDataOptionals } = {}
     ) {
         const signingEthAccount = opts.signingEthAccount ? opts.signingEthAccount : await this.defaultSigner()
         delete opts.signingEthAccount
         const chainId = opts.chainId ?? await this.viemWallet.getChainId()
 
-        //const [contractConfig, archiveNode, fullNode, preSyncedTree] = await Promise.all([
-        const contractConfig = await this.#getContractConfig(tokenAddress, chainId);
-        const archiveNode = await this.#getPublicClient({ type: "archive" });
-        const fullNode = await this.#getPublicClient({ type: "full" });
-        const preSyncedTree = await this.#getMerkleTree(tokenAddress, chainId);
-        //])
-        const optsWithDefaults = {
+        const [contractConfig, archiveNode, fullNode, preSyncedTree] = await Promise.all([
+            this.#getContractConfig(tokenAddress, chainId),
+            this.#getPublicClient({ type: "archive" }),
+            this.#getPublicClient({ type: "full" }),
+            this.#getMerkleTree(tokenAddress, chainId),
+        ])
+
+        if (opts.feeData !== undefined) {
+            // TODO below can only be set once circuit size is known.
+            // createRelayerInputs needs to be split up. But also be called concurrently so merkle tree can sync
+            // syncMerkle tree -----------------------------------------------> \/
+            // syncBurnAccounts -> selectBurnAccounts -> signPrivateTransfer -> make proof
+            // after selectBurnAccounts, circuit size is known. This also allows ui opportunities for the user to select a different size or selection strategy
+            //opts.feeData.estimatedGasCost ??= await this.#getGasCost()
+            opts.feeData.estimatedPriorityFee ??= toHex((await fullNode.estimateFeesPerGas()).maxPriorityFeePerGas)
+            opts.feeData.tokensPerEthPrice ??= await this.getTokenPrice(tokenAddress,{chainId})
+        }
+        const optsWithDefaults: CreateRelayerInputsOpts = {
             ...opts,
             fullNode,
 
@@ -388,6 +411,7 @@ export class BurnWallet {
             maxTreeDepth: Number(contractConfig.MAX_TREE_DEPTH),
             eip712Name: contractConfig.EIP712_NAME,
             eip712Version: contractConfig.EIP712_VERSION,
+            allowedChainIds: contractConfig.ACCEPTED_CHAIN_IDS
             //-----------
         }
         const { syncedData, relayInputs } = await createRelayerInputs(
@@ -453,7 +477,7 @@ export class BurnWallet {
                 ethAccounts: undefined
             }
         )
-        const foundBurnAccount = allBurnAccounts.find((b) =>b.burnAddress ===getAddress(burnAddress))
+        const foundBurnAccount = allBurnAccounts.find((b) => b.burnAddress === getAddress(burnAddress))
         if (!foundBurnAccount) throw new Error(`BurnAddress:${burnAddress} not in wallet, please provide the full burnAccount or use a regular transfer if you know what you are doing.`)
         return foundBurnAccount
     }
