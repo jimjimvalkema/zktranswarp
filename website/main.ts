@@ -6,7 +6,7 @@ import type { WormholeToken, SelfRelayInputs, BurnAccount, PreSyncedTree, PreSyn
 import { selfRelayTx, superSafeBurn } from '../src/transact.js';
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import sepoliaDeployments from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
-import type { WormholeTokenTest } from '../test/remint2.test.ts';
+import type { WormholeTokenTest } from '../test/reMint3.test.ts';
 
 import * as viem from 'viem'
 import { ADDED_BITS_SECURITY, POW_BITS } from '../src/constants.ts';

@@ -112,14 +112,6 @@ export interface PrivateProofInputs extends InputMap {
 
 export interface ProofInputs extends PublicProofInputs, PrivateProofInputs, InputMap { }
 
-export interface ProofInputs1n extends ProofInputs {
-    amount_burn_addresses: '0x0' & U32AsHex | '0x1' & U32AsHex;
-}
-
-export interface ProofInputs4n extends ProofInputs {
-    amount_burn_addresses: '0x0' & U32AsHex | '0x1' & U32AsHex | '0x2' & U32AsHex | '0x3' & U32AsHex | '0x4' & U32AsHex;
-}
-
 export interface FakeBurnAccount {
     readonly viewingKey: Hex,
 }
@@ -180,10 +172,25 @@ export interface RelayInputs {
     signatureInputs: SignatureInputsWithFee,
 }
 
+export type BurnAccountSelector = (spendableBurnAccounts: SpendableBurnAccount[], amount: bigint, largestCircuitSize: number, tokenAddress: Address)=> SpendableBurnAccount[]
+
+export interface BurnAccountSelectionForSpend {
+    tokenAddress: Address,
+    amount: bigint,
+    burnAccountsAndAmounts: SpendableBurnAccount[],
+}
+
+export interface SignedProofInputs {
+    signature: { signatureHash: Hex, signatureData: SignatureData, signatureInputs: SignatureInputs },
+    burnAccountSelectionForSpend: BurnAccountSelectionForSpend,
+}
+
+
 /**backend per circuit size */
 export type BackendPerSize = { [key: number]: UltraHonkBackend }
 //functions
 export type CreateRelayerInputsOpts = {
+    burnAccountSelector?:BurnAccountSelector
     fullNode?: PublicClient
     threads?: number;
     callData?: Hex;

@@ -1,6 +1,6 @@
 import { getAddress, toHex } from "viem"
 import type { Hex, Address, PublicClient } from "viem"
-import type { MerkleData, SpendableBalanceProof, PreSyncedTree, ProofInputs1n, ProofInputs4n, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount } from "./types.js"
+import type { MerkleData, SpendableBalanceProof, PreSyncedTree, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount, BurnAccountSelector, ProofInputs } from "./types.js"
 import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_MINTED_PADDING } from "./constants.ts"
 import { hashTotalMintedLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
@@ -148,7 +148,7 @@ export function makeClaimable(
 }
 
 
-export function selectBurnAccounts(
+export function selectSmallFirst(
     spendableBurnAccounts: SpendableBurnAccount[], amount: bigint, largestCircuitSize: number, tokenAddress: Address
 ): SpendableBurnAccount[] {
 
@@ -250,6 +250,34 @@ export function getPubInputs(
     return pubInputs
 }
 
+export async function selectBurnAccountsForClaim(
+    amount: bigint,
+    burnAccountSelector: BurnAccountSelector,
+    burnViewKeyManager: BurnViewKeyManager,
+    tokenAddress: Address,
+    signingEthAccount: Address,
+
+    chainId: bigint,
+    allowedChainIds: Hex[],
+    powDifficulty: Hex,
+
+    circuitSizes: number[],
+    circuitSize?: number,
+    burnAddresses?: Address[],
+) {
+    // TODO should be a minimum powDifficulty
+    const allBurnAccounts = getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }) as SyncedBurnAccount[]
+    burnAddresses ??= allBurnAccounts.map((b) => b.burnAddress)
+
+    // select burn accounts for spend. Takes highest balances first
+    // todo prepareBurnAccountsForSpend needs to be simpler. Just array of sorted burn accounts
+    // then a function that 
+    const spendableBurnAccounts = await toSpendableBurnAccounts(allBurnAccounts, tokenAddress, allowedChainIds, burnAddresses)
+    const maxCircuitSize = circuitSize ?? circuitSizes[circuitSizes.length - 1]
+    const burnAccountsAndAmounts = burnAccountSelector(spendableBurnAccounts, amount, maxCircuitSize, tokenAddress)
+    return burnAccountsAndAmounts
+}
+
 /**
  * Notice: assumes the merkle proofs are in the same order as syncedPrivateWallets and amountsToClaim
  * @param param0 
@@ -313,6 +341,45 @@ export function getPrivInputs(
         amount_burn_addresses: toHex(amountOfRealBurnAddresses) as U32AsHex
     }
     return privInputs
+}
+
+export async function signAndEncrypt(
+    recipient: Address, amount: bigint, signingEthAccount: Address,
+    burnViewKeyManager: BurnViewKeyManager, burnAccountsAndAmounts: SpendableBurnAccount[],
+    circuitSize: number, encryptedBlobLen: number, chainId: bigint,
+    callData: Hex, callValue: bigint, callCanFail: boolean,
+    tokenAddress: Address,
+    eip712Name: string,
+    eip712Version: string,
+    feeData?: FeeData
+) {
+    const encryptedTotalMinted = await encryptTotalSpends(burnAccountsAndAmounts)
+    // format inputs that wil be signed
+    let signatureInputs: SignatureInputs | SignatureInputsWithFee = {
+        contract: tokenAddress,
+        recipient: recipient,
+        amountToReMint: toHex(amount),
+        callData: callData,
+        callCanFail: callCanFail,
+        callValue: toHex(callValue),
+        // remember if you do not do padWithRandomHex you reveal how many address you consumed!
+        encryptedTotalMinted: padWithRandomHex({ arr: encryptedTotalMinted, len: circuitSize, hexSize: encryptedBlobLen, dir: "right" }),
+    }
+    if (feeData) {
+        signatureInputs = { ...signatureInputs, feeData } as SignatureInputsWithFee
+    }
+
+    const signature = await signPrivateTransfer(
+        burnViewKeyManager,
+        signatureInputs,
+        Number(chainId),
+        tokenAddress,
+        signingEthAccount,
+        eip712Name,
+        eip712Version
+    )
+    return { signatureInputs, signature }
+
 }
 
 // Overload 1: feeData provided → RelayInputs
@@ -387,10 +454,10 @@ export async function createRelayerInputs(
     tokenAddress: Address,
     archiveNode: PublicClient,
     signingEthAccount: Address,
-    { allowedChainIds, fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
+    { burnAccountSelector = selectSmallFirst, allowedChainIds, fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
-    // set defaults
+    //------- set defaults ----------------
     fullNode ??= archiveNode
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
     circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
@@ -406,6 +473,9 @@ export async function createRelayerInputs(
         eip712Name ??= name
         eip712Version ??= version
     }
+    // -------------------------------------
+
+    // -------------- sync --------------
     // start this asap so we can resolve once we need it
     const syncedTreePromise = getSyncedMerkleTree(
         tokenAddress,
@@ -419,10 +489,6 @@ export async function createRelayerInputs(
         }
     )
 
-    /// -------------burn account sync, selection -----------------------
-    // TODO should be a minimum powDifficulty
-    burnAddresses ??= getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }).map((b) => b.burnAddress)
-
     // sync burn accounts
     const syncedPrivateWallet = await syncMultipleBurnAccounts(
         burnViewKeyManager,
@@ -434,53 +500,73 @@ export async function createRelayerInputs(
             //ethAccounts: [ethAccount]         // we already know which burn addresses, we don't need to filter based on signer account
         }
     )
-    const burnAccounts = getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }) as SyncedBurnAccount[]
 
-    // select burn accounts for spend. Takes highest balances first
-    // todo prepareBurnAccountsForSpend needs to be simpler. Just array of sorted burn accounts
-    // then a function that 
-    const spendableBurnAccounts = await toSpendableBurnAccounts(burnAccounts, tokenAddress, allowedChainIds, burnAddresses)
-    const maxCircuitSize = circuitSize ?? circuitSizes[circuitSizes.length - 1]
-    const burnAccountsAndAmounts = selectBurnAccounts(spendableBurnAccounts, amount, maxCircuitSize, tokenAddress)
-    const encryptedTotalMinted = await encryptTotalSpends(burnAccountsAndAmounts)
+    // -------------burn account sync, selection -----------------------
+    const burnAccountsAndAmounts = await selectBurnAccountsForClaim(
+        amount, burnAccountSelector, burnViewKeyManager, tokenAddress, signingEthAccount,
+        chainId, allowedChainIds, powDifficulty,
+        circuitSizes, circuitSize,
+        burnAddresses,
+    )
     circuitSize ??= getCircuitSize(burnAccountsAndAmounts.length, circuitSizes)
     // -------------------------------------------------
 
-    // --------------------- signing transfer -------------------
-    // format inputs that wil be signed
-    let signatureInputs: SignatureInputs | SignatureInputsWithFee = {
-        contract: tokenAddress,
-        recipient: recipient,
-        amountToReMint: toHex(amount),
-        callData: callData,
-        callCanFail: callCanFail,
-        callValue: toHex(callValue),
-        // remember if you do not do padWithRandomHex you reveal how many address you consumed!
-        encryptedTotalMinted: padWithRandomHex({ arr: encryptedTotalMinted, len: circuitSize, hexSize: encryptedBlobLen, dir: "right" }),
-    }
-    if (feeData) {
-        signatureInputs = { ...signatureInputs, feeData } as SignatureInputsWithFee
-    }
 
-    const allSignatureDataPromise = signPrivateTransfer(
-        burnViewKeyManager,
-        signatureInputs,
-        Number(chainId),
+    // ------------ sign and resolve merkle tree ------------------------
+    const { signature: { signatureData, signatureHash }, signatureInputs } = await signAndEncrypt(
+        recipient, amount, signingEthAccount,
+        burnViewKeyManager, burnAccountsAndAmounts,
+        circuitSize, encryptedBlobLen, chainId,
+        callData, callValue, callCanFail,
         tokenAddress,
-        signingEthAccount,
         eip712Name,
-        eip712Version
-    )
-    //------------------------------------------
-
-
-    // ------------ resolve merkle tree and signing promise ------------------------
+        eip712Version,
+        feeData
+    );
     const syncedTree = await syncedTreePromise;
-    const { signatureData, signatureHash } = await allSignatureDataPromise;
     burnViewKeyManager = syncedPrivateWallet
     //----------------------------------------------------------------------
 
-    // ----- collect proof inputs from the burn accounts -----
+    // ----- hash inputs, format proof inputs and proof -----
+    const relayInputs = await hashAndProof(
+        amount,
+        burnAccountsAndAmounts,
+        signatureHash,
+        signatureData,
+        signatureInputs,
+        tokenAddress,
+        syncedTree,
+        chainId,
+        powDifficulty,
+        reMintLimit,
+        circuitSize,
+        circuitSizes,
+        maxTreeDepth,
+        feeData,
+        backends,
+        threads,
+    )
+    return { relayInputs, syncedData: { syncedTree, syncedPrivateWallet } }
+}
+
+export async function hashAndProof(
+    amount: bigint,
+    burnAccountsAndAmounts: SpendableBurnAccount[],
+    signatureHash: Hex,
+    signatureData: SignatureData,
+    signatureInputs: SignatureInputs,
+    tokenAddress: Address,
+    syncedTree: PreSyncedTree,
+    chainId: bigint,
+    powDifficulty: Hex,
+    reMintLimit: Hex,
+    circuitSize: number,
+    circuitSizes: number[],
+    maxTreeDepth: number,
+    feeData?: FeeData,
+    backends?: BackendPerSize,
+    threads?: number,
+) {
     // nullifiers, noteHashes, merkle proofs
     const nullifiers: bigint[] = []
     const noteHashes: bigint[] = []
@@ -543,36 +629,24 @@ export async function createRelayerInputs(
         circuitSizes: circuitSizes,
         tokenAddress: tokenAddress
     })
-    const proofInputs = { ...publicInputs, ...privateInputs } as ProofInputs1n | ProofInputs4n
+    const proofInputs = { ...publicInputs, ...privateInputs }
 
     // make proof!
     const zkProof = await generateProof(proofInputs, circuitSizes, { backends, threads })
     if (feeData) {
         return {
-            relayInputs:
-                {
-                    publicInputs: publicInputs,
-                    proof: toHex(zkProof.proof),
-                    signatureInputs: signatureInputs as SignatureInputsWithFee,
-                } as RelayInputs,
-            syncedData: {
-                syncedTree,
-                syncedPrivateWallet
-            }
-        };
+            publicInputs: publicInputs,
+            proof: toHex(zkProof.proof),
+            signatureInputs: signatureInputs as SignatureInputsWithFee,
+        } as RelayInputs;
     } else {
         return {
-            relayInputs: {
-                publicInputs: publicInputs,
-                proof: toHex(zkProof.proof),
-                signatureInputs: signatureInputs as SignatureInputs,
-            } as SelfRelayInputs,
-            syncedData: {
-                syncedTree,
-                syncedPrivateWallet
-            }
-        };
+            publicInputs: publicInputs,
+            proof: toHex(zkProof.proof),
+            signatureInputs: signatureInputs as SignatureInputs,
+        } as SelfRelayInputs;
     }
+
 }
 
 export function getBackend(circuitSize: number, threads?: number) {
@@ -583,7 +657,7 @@ export function getBackend(circuitSize: number, threads?: number) {
     return new UltraHonkBackend(byteCode, { threads: threads }, { recursive: false });
 }
 
-export async function generateProof(proofInputs: ProofInputs1n | ProofInputs4n, circuitSizes: number[], { threads, backends }: { backends?: BackendPerSize, threads?: number } = {}) {
+export async function generateProof(proofInputs: ProofInputs, circuitSizes: number[], { threads, backends }: { backends?: BackendPerSize, threads?: number } = {}) {
     const circuitSize = getCircuitSize(proofInputs.burn_data_public.length, circuitSizes)
     console.log("proving with:", { circuitSize, threads })
     const backend = (backends && backends[circuitSize]) ?? getBackend(circuitSize, threads)

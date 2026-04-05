@@ -13,7 +13,7 @@ import { createRelayerInputs, getBackend } from "../src/proving.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
 import { proofAndSelfRelay, relayTx, safeBurn, superSafeBurn } from "../src/transact.ts";
 import { getAddress, getContract, padHex, parseEventLogs, parseUnits, toHex, type Hash, type Hex } from "viem";
-import type { BurnAccount, FeeData } from "../src/types.ts";
+import type { BurnAccount, FeeData, RelayInputs } from "../src/types.ts";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -155,7 +155,7 @@ describe("Token", async function () {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
                     // TODO  BigInt(amountOfBurnAccounts) in remint100
-                    await aliceBurnWallet.superSafeBurn(reMintAmount / BigInt(amountOfBurnAccounts) + 1n, wormholeToken.address, aliceBurnAccount)
+                    await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
                 }
                 // 1 eth will give you 69 token. the eth price of token is 0.0144 eth (1/69)
                 const relayerBonus = parseUnits("1", decimalsToken)
@@ -173,32 +173,33 @@ describe("Token", async function () {
                 }
 
 
-                // TODO BurnWallet.sync() syncs all. should be split in BurnWallet.syncTree() BurnWallet.syncAccounts()
-                // burnAddresses:undefined = all, ["0x122"] <- only that burn account
-                // defaults to defaultSigner() and chainId from viemWallet
-                // we can also filter per difficulty but tbh nah, just make ur own burnAddresses array
-                // skip this as example. Too convenient! 
-                // await aliceBurnWallet.sync(wormholeToken.address)
-                // do in steps, uis will do at as well. although they should consider doing it concurrently!!!
-                // await aliceBurnWallet.syncAccounts(wormholeToken.address)
-                // await aliceBurnWallet.syncTree(wormholeToken.address)  
-                const proof = await aliceBurnWallet.proofReMint(
-                    reMintRecipient,
-                    reMintAmount,
-                    wormholeToken.address,
-                    {
-                        burnAddresses: claimableBurnAddress,
-                        // it will default to this, but if for some reason you want another account then alice.account.address, you can
-                        // signingEthAccount: alice.account.address,
-                        threads: provingThreads, // test breaks if we set this higher then 1, defaults to max
-                        circuitSize: CIRCUIT_SIZE, // forces to use that size, even if smaller circuits also work, defaults to lowest
+                // 1. start tree sync asap, so it can sync even when user is still deciding on signing
+                const syncedTreePromise = aliceBurnWallet.syncTree(wormholeToken.address)
 
-                        feeData: feeData // adding this makes the proof relay-able by a real relayer, and it will pay fees!
-                    }
-                )
+                // 2. sync burn accounts (needed before selection)
+                await aliceBurnWallet.syncBurnAccounts(wormholeToken.address, { burnAddressesToSync: claimableBurnAddress })
+
+                // 3. select burn accounts for spend
+                const selection = await aliceBurnWallet.selectBurnAccountsForSpend(wormholeToken.address, reMintAmount, {
+                    burnAddresses: claimableBurnAddress,
+                    circuitSize: CIRCUIT_SIZE,
+                })
+
+                // 4. sign
+                const signed = await aliceBurnWallet.signReMint(reMintRecipient, selection, {
+                    feeData: feeData,
+                })
+
+                // 5. ensure tree is synced before proving
+                const syncedTree = await syncedTreePromise
+
+                // 6. prove with the resolved tree
+                const relayInputs = await aliceBurnWallet.proof(signed, { syncedTree, threads: provingThreads, feeData })
+
+                // 7. relay
                 // BurnWallets can also do it. But tbh the relayer probably do not want their own burn accounts
-                //const reMintTx = await relayerBurnWallet.relayTx(proof)
-                const reMintTx = await relayTx(proof, relayer)
+                //const reMintTx = await relayerBurnWallet.relayTx(relayInputs)
+                const reMintTx = await relayTx(relayInputs, relayer)
                 const txReceipt = await publicClient.getTransactionReceipt({ hash: reMintTx });
                 const logs = parseEventLogs({
                     abi: wormholeTokenAbi,

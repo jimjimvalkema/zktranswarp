@@ -179,7 +179,7 @@ describe("Token", async function () {
                 for (const aliceBurnAccount of aliceBurnAccounts) {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
-                    await aliceBurnWallet.superSafeBurn(reMintAmount / BigInt(amountOfBurnAccounts) + 1n, wormholeToken.address, aliceBurnAccount)
+                    await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
                 }
 
                 // TODO BurnWallet.sync() syncs all. should be split in BurnWallet.syncTree() BurnWallet.syncAccounts()
@@ -191,10 +191,10 @@ describe("Token", async function () {
                 // do in steps, uis will do at as well. although they should consider doing it concurrently!!!
                 // await aliceBurnWallet.syncAccounts(wormholeToken.address)
                 // await aliceBurnWallet.syncTree(wormholeToken.address)  
-                const proof = await aliceBurnWallet.proofReMint(
+                const proof = await aliceBurnWallet.easyProof(
+                    wormholeToken.address,
                     reMintRecipient,
                     reMintAmount,
-                    wormholeToken.address,
                     {
                         burnAddresses: claimableBurnAddress,
                         signingEthAccount: alice.account.address,

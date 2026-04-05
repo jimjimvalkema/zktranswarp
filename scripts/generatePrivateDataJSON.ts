@@ -95,10 +95,10 @@ describe("Token", async function () {
             const amountBurnAddresses = 200
 
             const burnAccounts: UnsyncedBurnAccount[] = await alicePrivate.createBurnAccountsBulk(wormholeToken.address, amountBurnAddresses, { async: true })
-            await alicePrivate.superSafeBurn(100000n,wormholeToken.address,burnAccounts[0])
-            // const proof1 = await alicePrivate.proofReMint(burnAccounts[1].burnAddress,69n,wormholeToken.address,{threads:provingThreads})
+            await alicePrivate.superSafeBurn(wormholeToken.address,100000n,burnAccounts[0])
+            // const proof1 = await alicePrivate.easyProof(wormholeToken.address,burnAccounts[1].burnAddress,69n,{threads:provingThreads})
             // await alicePrivate.selfRelayTx(proof1)
-            // const proof2 = await alicePrivate.proofReMint(burnAccounts[2].burnAddress,69n,wormholeToken.address,{threads:provingThreads})
+            // const proof2 = await alicePrivate.easyProof(wormholeToken.address,burnAccounts[2].burnAddress,69n,{threads:provingThreads})
             // await alicePrivate.selfRelayTx(proof2)
             const __dirname = dirname(fileURLToPath(import.meta.url));
             const path =  join(__dirname, '../test/data/privateDataAlice.json')

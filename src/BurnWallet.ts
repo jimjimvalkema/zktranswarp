@@ -2,17 +2,17 @@
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { createPublicClient, custom, getAddress, getContract, padHex, toHex } from "viem";
-import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, WormholeToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, WormholeContractConfig, FeeDataOptionals } from "./types.ts"
-import { RE_MINT_RELAYER_GAS, RE_MINT_RELAYER_GAS_DEFAULT_L1, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
+import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, WormholeToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, WormholeContractConfig, FeeDataOptionals, SpendableBurnAccount, BackendPerSize, BurnAccountSelector, SignatureInputs, SignatureData, BurnAccountSelectionForSpend, SignedProofInputs } from "./types.ts"
+import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, RE_MINT_RELAYER_GAS, RE_MINT_RELAYER_GAS_DEFAULT_L1, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { LeanIMT } from "@zk-kit/lean-imt";
-import { poseidon2IMTHashFunc } from "./syncing.ts";
+import { getSyncedMerkleTree, poseidon2IMTHashFunc, syncMultipleBurnAccounts } from "./syncing.ts";
 import { ExportedMerkleTreesSchema, PreSyncedTreeStringifyableSchema, type ExportedMerkleTrees } from "./schemas.ts";
 import { burn, relayTx, selfRelayTx, superSafeBurn } from "./transact.ts";
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.ts"
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
-import { createRelayerInputs } from "./proving.ts";
-import { getAcceptedChainIdFromContract, getAllBurnAccounts, getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
+import { createRelayerInputs, hashAndProof, selectBurnAccountsForClaim, selectSmallFirst, signAndEncrypt } from "./proving.ts";
+import { getAcceptedChainIdFromContract, getAllBurnAccounts, getCircuitSize, getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 
@@ -341,7 +341,7 @@ export class BurnWallet {
         }
     }
 
-    async getTokenPrice(token: Address, { chainId }: { chainId?: number } = {}):Promise<Hex> {
+    async getTokenPrice(token: Address, { chainId }: { chainId?: number } = {}): Promise<Hex> {
         //https://claude.ai/chat/14f414da-d400-4a37-ad68-1bb11894bc83
         chainId ??= await this.viemWallet.getChainId()
         throw Error(`TODO implements this! \n Could not find a price on uniswap v2,v3 or v4 on token ${token} on chainId:${chainId}. Please manually provide the eth price`)
@@ -362,17 +362,120 @@ export class BurnWallet {
         }
     }
 
+    async sync(
+        tokenAddress: Address,
+        { chainId, deploymentBlock, blocksPerGetLogsReq, burnAddressesToSync, signingEthAccount, maxNonce }:
+            { chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint } = {}) {
+        const [syncedTree, syncedBurnAccounts] = await Promise.all([
+            this.syncTree(tokenAddress, { chainId, deploymentBlock, blocksPerGetLogsReq }),
+            this.syncBurnAccounts(tokenAddress, { chainId, burnAddressesToSync, signingEthAccount, maxNonce })
+        ])
+        return {syncedTree, syncedBurnAccounts}
+    }
+
+    async syncTree(tokenAddress: Address, { chainId, deploymentBlock, blocksPerGetLogsReq }: { chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}) {
+        chainId ??= await this.viemWallet.getChainId()
+        const [archiveNode, fullNode, preSyncedTree] = await Promise.all([
+            this.#getPublicClient({ type: "archive", chainId }),
+            this.#getPublicClient({ type: "full", chainId }),
+            this.#getMerkleTree(tokenAddress, chainId),
+        ])
+        const syncedTree = await getSyncedMerkleTree(tokenAddress, archiveNode, { fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq })
+        this.#setMerkleTree(syncedTree, tokenAddress, chainId)
+        return syncedTree
+    }
+
+    async syncBurnAccounts(tokenAddress: Address, { chainId, burnAddressesToSync, signingEthAccount, maxNonce }: { chainId?: number, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint } = {}) {
+        chainId ??= await this.viemWallet.getChainId()
+        signingEthAccount ??= await this.defaultSigner()
+        const [archiveNode, fullNode] = await Promise.all([
+            this.#getPublicClient({ type: "archive", chainId }),
+            this.#getPublicClient({ type: "full", chainId }),
+        ])
+        return await syncMultipleBurnAccounts(this.burnViewKeyManager, tokenAddress, archiveNode, { fullNode, burnAddressesToSync, maxNonce, ethAccounts: [signingEthAccount], chainId: toHex(chainId) })
+    }
+
+    async selectBurnAccountsForSpend(
+        tokenAddress: Address, amount: bigint,
+        { chainId, signingEthAccount, burnAccountSelector = selectSmallFirst, circuitSize, burnAddresses }:
+            { chainId?: number, signingEthAccount?: Address, burnAccountSelector?: BurnAccountSelector, circuitSize?: number, burnAddresses?: Address[] } = {}
+    ): Promise<BurnAccountSelectionForSpend> {
+        chainId ??= await this.viemWallet.getChainId()
+        signingEthAccount ??= await this.defaultSigner()
+        const contractConfig = await this.#getContractConfig(tokenAddress, chainId)
+        const burnAccountsAndAmounts = await selectBurnAccountsForClaim(
+            amount, burnAccountSelector, this.burnViewKeyManager, tokenAddress, signingEthAccount,
+            BigInt(chainId), contractConfig.ACCEPTED_CHAIN_IDS, contractConfig.POW_DIFFICULTY,
+            contractConfig.VERIFIER_SIZES, circuitSize, burnAddresses,
+        )
+        return { tokenAddress, amount, burnAccountsAndAmounts }
+    }
+
+    async signReMint(
+        recipient: Address, burnAccountSelectionForSpend: BurnAccountSelectionForSpend,
+        { chainId, signingEthAccount, circuitSize, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD, callData = "0x", callValue = 0n, callCanFail = false, feeData }:
+            { chainId?: number, signingEthAccount?: Address, circuitSize?: number, encryptedBlobLen?: number, callData?: Hex, callValue?: bigint, callCanFail?: boolean, feeData?: FeeData } = {}
+    ): Promise<SignedProofInputs> {
+        const { amount, tokenAddress, burnAccountsAndAmounts } = burnAccountSelectionForSpend
+        chainId ??= await this.viemWallet.getChainId()
+        signingEthAccount ??= await this.defaultSigner()
+        const contractConfig = await this.#getContractConfig(tokenAddress, chainId)
+        circuitSize ??= getCircuitSize(burnAccountsAndAmounts.length, contractConfig.VERIFIER_SIZES)
+        const { signatureInputs, signature } = await signAndEncrypt(
+            recipient, amount, signingEthAccount,
+            this.burnViewKeyManager, burnAccountsAndAmounts,
+            circuitSize, encryptedBlobLen, BigInt(chainId),
+            callData, callValue, callCanFail,
+            tokenAddress,
+            contractConfig.EIP712_NAME,
+            contractConfig.EIP712_VERSION,
+            feeData,
+        )
+        return {
+            signature: { signatureHash: signature.signatureHash, signatureData: signature.signatureData, signatureInputs },
+            burnAccountSelectionForSpend,
+        }
+    }
+
+    async proof(
+        signedProofInputs: SignedProofInputs,
+        opts: { chainId?: number, syncedTree?: PreSyncedTree, circuitSize?: number, feeData: FeeData, backends?: BackendPerSize, threads?: number }
+    ): Promise<RelayInputs>;
+    async proof(
+        signedProofInputs: SignedProofInputs,
+        opts?: { chainId?: number, syncedTree?: PreSyncedTree, circuitSize?: number, feeData?: undefined, backends?: BackendPerSize, threads?: number }
+    ): Promise<SelfRelayInputs>;
+    async proof(
+        signedProofInputs: SignedProofInputs,
+        { chainId, syncedTree, circuitSize, feeData, backends, threads }:
+            { chainId?: number, syncedTree?: PreSyncedTree, circuitSize?: number, feeData?: FeeData, backends?: BackendPerSize, threads?: number } = {}
+    ) {
+        const { signature: { signatureHash, signatureData, signatureInputs }, burnAccountSelectionForSpend: { amount, tokenAddress, burnAccountsAndAmounts } } = signedProofInputs
+        chainId ??= await this.viemWallet.getChainId()
+        const contractConfig = await this.#getContractConfig(tokenAddress, chainId)
+        circuitSize ??= getCircuitSize(burnAccountsAndAmounts.length, contractConfig.VERIFIER_SIZES)
+        syncedTree ??= await this.#getMerkleTree(tokenAddress, chainId)
+        return await hashAndProof(
+            amount, burnAccountsAndAmounts,
+            signatureHash, signatureData, signatureInputs,
+            tokenAddress, syncedTree, BigInt(chainId),
+            contractConfig.POW_DIFFICULTY, contractConfig.RE_MINT_LIMIT,
+            circuitSize, contractConfig.VERIFIER_SIZES, Number(contractConfig.MAX_TREE_DEPTH),
+            feeData, backends, threads,
+        )
+    }
+
     // TODO cache proof backend
-    async proofReMint(
-        recipient: Address, amount: bigint, tokenAddress: Address,
+    async easyProof(
+        tokenAddress: Address, recipient: Address, amount: bigint,
         opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData"> & { signingEthAccount?: Address, chainId?: number, feeData: FeeData }
     ): Promise<RelayInputs>;
-    async proofReMint(
-        recipient: Address, amount: bigint, tokenAddress: Address,
+    async easyProof(
+        tokenAddress: Address, recipient: Address, amount: bigint,
         opts?: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData"> & { signingEthAccount?: Address, chainId?: number, feeData?: undefined }
     ): Promise<SelfRelayInputs>;
-    async proofReMint(
-        recipient: Address, amount: bigint, tokenAddress: Address,
+    async easyProof(
+        tokenAddress: Address, recipient: Address, amount: bigint,
         opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData"> & { signingEthAccount?: Address, chainId?: number, feeData?: FeeDataOptionals } = {}
     ) {
         const signingEthAccount = opts.signingEthAccount ? opts.signingEthAccount : await this.defaultSigner()
@@ -394,7 +497,7 @@ export class BurnWallet {
             // after selectBurnAccounts, circuit size is known. This also allows ui opportunities for the user to select a different size or selection strategy
             //opts.feeData.estimatedGasCost ??= await this.#getGasCost()
             opts.feeData.estimatedPriorityFee ??= toHex((await fullNode.estimateFeesPerGas()).maxPriorityFeePerGas)
-            opts.feeData.tokensPerEthPrice ??= await this.getTokenPrice(tokenAddress,{chainId})
+            opts.feeData.tokensPerEthPrice ??= await this.getTokenPrice(tokenAddress, { chainId })
         }
         const optsWithDefaults: CreateRelayerInputsOpts = {
             ...opts,
@@ -419,8 +522,8 @@ export class BurnWallet {
             optsWithDefaults
         )
         this.#setMerkleTree(syncedData.syncedTree, tokenAddress, chainId)
-        // TODO afaik we don't have to do this? Double check that. 
-        // In general i think createRelayerInputs should not sync anything? Maybe check the nonce is up to data for sure tho. Also this.proofReMint should sync by default, but also be able to proof on a stale root but we need to check the burn accounts used if the can do that.
+        // TODO afaik we don't have to do this? Double check that.
+        // In general i think createRelayerInputs should not sync anything? Maybe check the nonce is up to data for sure tho. Also this.easyProof should sync by default, but also be able to proof on a stale root but we need to check the burn accounts used if the can do that.
         //this.burnViewKeyManager = syncedData.syncedPrivateWallet
         return relayInputs
     }
@@ -491,7 +594,7 @@ export class BurnWallet {
      * @TODO 
      */
     async superSafeBurn(
-        amount: bigint, tokenAddress: Address, burnAccount?: BurnAccount | { burnAddress: Address },
+        tokenAddress: Address, amount: bigint, burnAccount?: BurnAccount | { burnAddress: Address },
         { chainId, signingEthAccount }: { chainId?: number, signingEthAccount?: Address } = {}
     ) {
         chainId ??= await this.viemWallet.getChainId()
