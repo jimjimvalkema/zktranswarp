@@ -39,10 +39,10 @@ So please double check the url!
 //------------
 export const WormholeTokenContractName = "WormholeToken"
 export const leanIMTPoseidon2ContractName = "leanIMTPoseidon2"
-export const reMint2InVerifierContractName = "reMint2Verifier"
+export const reMint3InVerifierContractName = "reMint3Verifier"
 export const reMint32InVerifierContractName = "reMint32Verifier"
 export const reMint100InVerifierContractName = "reMint100Verifier"
-export const ZKTranscriptLibContractName2 = "contracts/reMint2Verifier.sol:ZKTranscriptLib"
+export const ZKTranscriptLibContractName2 = "contracts/reMint3Verifier.sol:ZKTranscriptLib"
 export const ZKTranscriptLibContractName32 = "contracts/reMint32Verifier.sol:ZKTranscriptLib"
 export const ZKTranscriptLibContractName100 = "contracts/reMint100Verifier.sol:ZKTranscriptLib"
 
@@ -116,7 +116,7 @@ export const PRIVATE_RE_MINT_RELAYER_712_TYPES = {
 
 // --------------------
 export const RE_MINT_RELAYER_GAS_DEFAULT_L1 = {
-    [2]: toHex(100000n),
+    [3]: toHex(100000n),
     [32]: toHex(100000n),
     [100]: toHex(100000n),
 } as const

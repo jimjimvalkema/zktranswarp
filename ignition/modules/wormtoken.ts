@@ -1,6 +1,6 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 //@ts-ignore hardhat ignition does not understand file extensions
-import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName2, WormholeTokenContractName, ZKTranscriptLibContractName100, reMint2InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName } from "../../src/constants.ts";
+import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName2, WormholeTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName } from "../../src/constants.ts";
 import { POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../../src/constants.ts";
 import { toHex } from "viem";
 
@@ -9,7 +9,7 @@ export default buildModule("wormholeToken", (m) => {
     //const ZKTranscriptLib100in = m.contract(ZKTranscriptLibContractName100in, [], { libraries: {} });
     const ZKTranscriptLib2in = m.contract(ZKTranscriptLibContractName2, [], { libraries: {} });
     //const ZKTranscriptLib100in = m.contract(ZKTranscriptLibContractName100in, [], { libraries: {} });
-    const reMintVerifier2 = m.contract(reMint2InVerifierContractName, [], { libraries: { ZKTranscriptLib: ZKTranscriptLib2in } });
+    const reMintVerifier3 = m.contract(reMint3InVerifierContractName, [], { libraries: { ZKTranscriptLib: ZKTranscriptLib2in } });
     const reMintVerifier32 = m.contract(reMint32InVerifierContractName, [], { libraries: { ZKTranscriptLib: ZKTranscriptLib2in } });
     const reMintVerifier100 = m.contract(reMint100InVerifierContractName, [], { libraries: { ZKTranscriptLib: ZKTranscriptLib2in } });
 
@@ -21,7 +21,7 @@ export default buildModule("wormholeToken", (m) => {
     const _tokenSymbol = "zkTransWarpTestToken"
     const _712Version = "1"
     const _verifiers = [
-        { contractAddress: reMintVerifier2, size: 2 },
+        { contractAddress: reMintVerifier3, size: 3 },
         { contractAddress: reMintVerifier32, size: 32 },
         { contractAddress: reMintVerifier100, size: 100 }
     ]
@@ -42,5 +42,5 @@ export default buildModule("wormholeToken", (m) => {
         { libraries: { leanIMTPoseidon2: leanIMTPoseidon2 } }
     );
 
-    return { wormholeToken, reMintVerifier2, reMintVerifier32, reMintVerifier100, ZKTranscriptLib: ZKTranscriptLib2in, leanIMTPoseidon2 };
+    return { wormholeToken, reMintVerifier3, reMintVerifier32, reMintVerifier100, ZKTranscriptLib: ZKTranscriptLib2in, leanIMTPoseidon2 };
 });

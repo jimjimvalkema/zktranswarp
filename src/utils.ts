@@ -1,13 +1,9 @@
 import { bytesToHex, getContract, hexToBytes, padHex, toHex, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
-import type { WormholeTokenTest } from "../test/remint2.test.ts";
 import type {
     BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken,
     AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable,
     DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, FullViewKeyData, UnknownBurnAccount, ExportedViewKeyData,
     BurnAccountRecoverable,
-    UnsyncedBurnAccount,
-    AtLeastOne,
-    WormholeClientArg
 } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS } from "./constants.ts";
@@ -162,14 +158,14 @@ export function getDeterministicBurnAccounts(
 //     const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount).filter(async (b) => await wormholeToken.read.balanceOf([b.burnAddress]) === 0n)
 // }
 
-export async function getCircuitSizesFromContract(wormholeToken: WormholeToken | WormholeTokenTest) {
+export async function getCircuitSizesFromContract(wormholeToken: WormholeToken):Promise<number[]> {
     const AMOUNT_OF_VERIFIERS = await wormholeToken.read.AMOUNT_OF_VERIFIERS()
-    const sizes = await Promise.all(new Array(AMOUNT_OF_VERIFIERS).fill(0).map((v, index) => wormholeToken.read.VERIFIER_SIZES([BigInt(index)])))
-    return sizes
+    const sizes = (await Promise.all(new Array(AMOUNT_OF_VERIFIERS).fill(0).map((v, index) => wormholeToken.read.VERIFIER_SIZES([BigInt(index)]))))
+    return sizes as number[]
 }
 
 
-export async function getAcceptedChainIdFromContract(wormholeToken: WormholeToken | WormholeTokenTest):Promise<bigint[]> {
+export async function getAcceptedChainIdFromContract(wormholeToken: WormholeToken):Promise<readonly bigint[]> {
     return await wormholeToken.read.getAcceptedChainIds()
 }
 export function getCircuitSize(amountBurnAddresses: number, circuitSizes: number[]) {

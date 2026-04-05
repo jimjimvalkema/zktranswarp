@@ -25,12 +25,12 @@
   },
   "scripts": {
     "solidity": "hardhat compile;",
-    "noir:reMint2:compile": "cd circuits/reMint2; nargo compile;",
-    "noir:reMint2:vk": "cd circuits/reMint2; bb write_vk -b ./target/reMint2.json -o ./target --oracle_hash keccak;",
-    "noir:reMint2:verifier": "cd circuits/reMint2; bb write_solidity_verifier -k ./target/vk -o ./target/Verifier.sol;",
-    "noir:reMint2:cp-verifier": "cp circuits/reMint2/target/Verifier.sol contracts/reMint2Verifier.sol;",
-    "noir:reMint2:rename-verifier": "yarn tsx scripts/renameVerifier.ts --newName reMint2Verifier --file contracts/reMint2Verifier.sol",
-    "noir:reMint2": "yarn noir:reMint2:compile; yarn noir:reMint2:vk; yarn noir:reMint2:verifier; yarn noir:reMint2:cp-verifier; yarn noir:reMint2:rename-verifier;",
+    "noir:reMint3:compile": "cd circuits/reMint3; nargo compile;",
+    "noir:reMint3:vk": "cd circuits/reMint3; bb write_vk -b ./target/reMint3.json -o ./target --oracle_hash keccak;",
+    "noir:reMint3:verifier": "cd circuits/reMint3; bb write_solidity_verifier -k ./target/vk -o ./target/Verifier.sol;",
+    "noir:reMint3:cp-verifier": "cp circuits/reMint3/target/Verifier.sol contracts/reMint3Verifier.sol;",
+    "noir:reMint3:rename-verifier": "yarn tsx scripts/renameVerifier.ts --newName reMint3Verifier --file contracts/reMint3Verifier.sol",
+    "noir:reMint3": "yarn noir:reMint3:compile; yarn noir:reMint3:vk; yarn noir:reMint3:verifier; yarn noir:reMint3:cp-verifier; yarn noir:reMint3:rename-verifier;",
     "noir:reMint32:compile": "cd circuits/reMint32; nargo compile;",
     "noir:reMint32:vk": "cd circuits/reMint32; bb write_vk -b ./target/reMint32.json -o ./target --oracle_hash keccak;",
     "noir:reMint32:verifier": "cd circuits/reMint32; bb write_solidity_verifier -k ./target/vk -o ./target/Verifier.sol;",
@@ -43,7 +43,7 @@
     "noir:reMint100:cp-verifier": "cp circuits/reMint100/target/Verifier.sol contracts/reMint100Verifier.sol;",
     "noir:reMint100:rename-verifier": "yarn tsx scripts/renameVerifier.ts --newName reMint100Verifier --file contracts/reMint100Verifier.sol",
     "noir:reMint100": "yarn noir:reMint100:compile; yarn noir:reMint100:vk; yarn noir:reMint100:verifier; yarn noir:reMint100:cp-verifier; yarn noir:reMint100:rename-verifier;",
-    "noir": "yarn noir:reMint2; yarn noir:reMint32; yarn noir:reMint100",
+    "noir": "yarn noir:reMint3; yarn noir:reMint32; yarn noir:reMint100",
     "website": "cd website; yarn vite"
   },
   "dependencies": {

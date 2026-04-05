@@ -5,20 +5,19 @@ import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_
 import { hashTotalMintedLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
 import { LeanIMT } from "@zk-kit/lean-imt"
-import type { WormholeTokenTest } from "../test/remint2.test.ts"
 import { encryptTotalMinted, getSyncedMerkleTree, syncMultipleBurnAccounts } from "./syncing.ts"
 import type { ProofData } from '@aztec/bb.js';
 import { UltraHonkBackend } from '@aztec/bb.js';
 import type { CompiledCircuit, InputMap } from "@noir-lang/noir_js"
 import { Noir } from "@noir-lang/noir_js"
-import reMint2Circuit from '../circuits/reMint2/target/reMint2.json' with { type: 'json' };
+import reMint3Circuit from '../circuits/reMint3/target/reMint3.json' with { type: 'json' };
 import reMint32Circuit from '../circuits/reMint32/target/reMint32.json' with { type: 'json' };
 import reMint100Circuit from '../circuits/reMint100/target/reMint100.json'  with { type: 'json' };
-const circuits: { [k: number]: any } = {
-    2: reMint2Circuit,
+const circuits: { [circuitSize: number]: any } = {
+    3: reMint3Circuit,
     32: reMint32Circuit,
     100: reMint100Circuit
-}
+} as const
 
 //import { Fr } from "@aztec/aztec.js"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
@@ -89,7 +88,6 @@ export function getSpendableBalanceProof(
 }
 
 export async function toSpendableBurnAccounts(burnAccounts: SyncedBurnAccount[], tokenAddress: Address, allowedChainIds: Hex[], selectBurnAddresses: Address[]) {
-    console.log({burnAccounts, tokenAddress, allowedChainIds, selectBurnAddresses})
     const entries: SpendableBurnAccount[] = []
     selectBurnAddresses = selectBurnAddresses.map((a) => getAddress(a))
     for (const burnAccount of burnAccounts) {
@@ -99,55 +97,86 @@ export async function toSpendableBurnAccounts(burnAccounts: SyncedBurnAccount[],
             if (allowedChainIds.includes(chainId as Hex) === false) continue
             const state = statePerContract[tokenAddress]
             if (state && BigInt(state.spendableBalance) > 0n) {
-                entries.push({ burnAccount, contract: tokenAddress, chainId: chainId as Hex, spendableBalance: BigInt(state.spendableBalance) })
+                entries.push({ burnAccount, contract: tokenAddress, chainId: chainId as Hex, amount: BigInt(state.spendableBalance) })
             }
         }
     }
     return entries
 }
 
-export async function selectAndEncryptSpends(spendableBurnAccounts: SpendableBurnAccount[], amount: bigint, largestCircuitSize: number, tokenAddress: Address) {
-    const encryptedTotalMinted: Hex[] = []
-    const burnAccountsAndAmounts: { burnAccount: SyncedBurnAccount, amountToClaim: bigint, chainId: Hex }[] = []
+export async function encryptTotalSpends(
+    claimedBurnAccounts: SpendableBurnAccount[]
+): Promise<Hex[]> {
+    const encryptedAmounts = await Promise.all(claimedBurnAccounts.map(async (claim) => {
+        const syncFields = claim.burnAccount.syncData[claim.chainId][claim.contract]
+        const newTotalMinted = claim.amount + BigInt(syncFields.totalMinted)
+        return await encryptTotalMinted({ viewingKey: BigInt(claim.burnAccount.viewingKey), amount: newTotalMinted })
+    }))
+    return encryptedAmounts
+}
+export function makeClaimable(
+    spendableBurnAccounts: SpendableBurnAccount[], amount: bigint, largestCircuitSize: number, claimable?: SpendableBurnAccount[]
+): { claimable: SpendableBurnAccount[], amountShort: bigint } {
     let amountLeft = amount
-    for (const { burnAccount, chainId, spendableBalance } of spendableBurnAccounts) {
-        const syncFields = burnAccount.syncData[chainId][tokenAddress]
-        let amountToClaim = 0n
-        if (spendableBalance <= amountLeft) {
-            amountToClaim = spendableBalance
-        } else {
-            amountToClaim = amountLeft
+    if (claimable) {
+        const alreadyClaimed = (claimable as SpendableBurnAccount[]).reduce((a, b) => a + b.amount, 0n)
+        amountLeft = amount - alreadyClaimed
+    }
+    claimable ??= []
+
+    for (const [index, { burnAccount, chainId, amount: spendableBalance, contract }] of spendableBurnAccounts.entries()) {
+        if (claimable[index]) {
+            amountLeft += claimable[index].amount
         }
+        const amountToClaim = spendableBalance <= amountLeft ? spendableBalance : amountLeft
         amountLeft -= amountToClaim
-        const newTotalMinted = amountToClaim + BigInt(syncFields.totalMinted)
-        encryptedTotalMinted.push(await encryptTotalMinted({ viewingKey: BigInt(burnAccount.viewingKey), amount: newTotalMinted }))
-        burnAccountsAndAmounts.push({
+
+        claimable[index] = {
             burnAccount,
-            amountToClaim,
-            chainId
-        })
+            amount: amountToClaim,
+            chainId,
+            contract: contract
+        }
         if (amountLeft === 0n) {
             break
         }
+        if (claimable.length >= largestCircuitSize) {
+            break
+        }
     }
-    if (amountLeft !== 0n) {
-        throw new Error(`not enough balances in selected burn accounts, short of ${Number(amountLeft)}, selected burn accounts: ${JSON.stringify(spendableBurnAccounts.map((e) => {
-            const syncFields = e.burnAccount.syncData[e.chainId][tokenAddress]
-            return {
-                chainId: e.chainId,
-                accountNonce: syncFields.accountNonce,
-                totalBurned: syncFields.totalBurned,
-                totalMinted: syncFields.totalMinted,
-                spendableBalance: syncFields.spendableBalance
-            }
-        }))}`)
-    }
+    return { claimable, amountShort: amountLeft }
+}
 
-    //console.log(`burn accounts selected: \n${burnAccountsAndAmounts.map((b) => `${b.burnAccount.burnAddress},spendable:${b.burnAccount.spendableBalance},burned:${b.burnAccount.totalBurned},amountToBeClaimed:${b.amountToClaim}\n`)}`)
-    if (burnAccountsAndAmounts.length > largestCircuitSize) {
-        throw new Error(`need to consume more than LARGEST_CIRCUIT_SIZE of: ${largestCircuitSize}, but need to consume: ${burnAccountsAndAmounts.length} burnAccount to make the transaction. Please consolidate balance to make this tx`)
+
+export function selectBurnAccounts(
+    spendableBurnAccounts: SpendableBurnAccount[], amount: bigint, largestCircuitSize: number, tokenAddress: Address
+): SpendableBurnAccount[] {
+
+    // first we try to use all small accounts
+    spendableBurnAccounts.sort((a, b) => Number(a.amount) - Number(b.amount))
+    const { claimable: claimableAllChange, amountShort: amountShortChange } = makeClaimable(spendableBurnAccounts, amount, largestCircuitSize)
+
+    if (amountShortChange === 0n) {
+        return claimableAllChange
+
+    } else {
+        // now we go again but we reverse spendableBurnAccounts, so large balances are used first
+        // and we reverse claimableAllChange, so largest change is replaced by largest accounts, until we meet our target amounts
+        const { claimable: claimableMixedWithChange, amountShort: amountShortMixedChange } = makeClaimable(spendableBurnAccounts.toReversed(), amount, largestCircuitSize, claimableAllChange.toReversed())
+        if (amountShortMixedChange !== 0n) {
+            throw new Error(`not enough balances in selected burn accounts, short of ${Number(amountShortMixedChange)}, selected burn accounts: ${JSON.stringify(spendableBurnAccounts.map((e) => {
+                const syncFields = e.burnAccount.syncData[e.chainId][tokenAddress]
+                return {
+                    chainId: e.chainId,
+                    accountNonce: syncFields.accountNonce,
+                    totalBurned: syncFields.totalBurned,
+                    totalMinted: syncFields.totalMinted,
+                    spendableBalance: syncFields.spendableBalance
+                }
+            }))}`)
+        }
+        return claimableMixedWithChange
     }
-    return { burnAccountsAndAmounts, encryptedTotalMinted }
 }
 
 export function getHashedInputs(
@@ -358,17 +387,18 @@ export async function createRelayerInputs(
     tokenAddress: Address,
     archiveNode: PublicClient,
     signingEthAccount: Address,
-    { burnAccountSelector, allowedChainIds, fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
+    { allowedChainIds, fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
     // set defaults
-    burnAccountSelector ??= (a: SpendableBurnAccount, b: SpendableBurnAccount) => Number(b.spendableBalance) - Number(a.spendableBalance)
     fullNode ??= archiveNode
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
+    circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
+    if (circuitSize && circuitSizes.includes(circuitSize) === false) throw new Error(`circuit size: ${circuitSize} does not exist in contract: ${tokenAddress}, only sizes: ${circuitSizes.toString()} are available`)
+
     powDifficulty ??= await wormholeTokenFull.read.POW_DIFFICULTY()
     allowedChainIds ??= (await getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken)).map((v) => toHex(v))
     reMintLimit ??= await wormholeTokenFull.read.RE_MINT_LIMIT();
-    circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
     chainId ??= BigInt(await fullNode.getChainId());
     maxTreeDepth ??= await wormholeTokenFull.read.MAX_TREE_DEPTH()
     if (eip712Name === undefined || eip712Version === undefined) {
@@ -410,9 +440,9 @@ export async function createRelayerInputs(
     // todo prepareBurnAccountsForSpend needs to be simpler. Just array of sorted burn accounts
     // then a function that 
     const spendableBurnAccounts = await toSpendableBurnAccounts(burnAccounts, tokenAddress, allowedChainIds, burnAddresses)
-    spendableBurnAccounts.sort(burnAccountSelector)
-    const largestCircuitSize = circuitSizes[circuitSizes.length - 1]
-    const { burnAccountsAndAmounts, encryptedTotalMinted } = await selectAndEncryptSpends(spendableBurnAccounts, amount, largestCircuitSize, tokenAddress)
+    const maxCircuitSize = circuitSize ?? circuitSizes[circuitSizes.length - 1]
+    const burnAccountsAndAmounts = selectBurnAccounts(spendableBurnAccounts, amount, maxCircuitSize, tokenAddress)
+    const encryptedTotalMinted = await encryptTotalSpends(burnAccountsAndAmounts)
     circuitSize ??= getCircuitSize(burnAccountsAndAmounts.length, circuitSizes)
     // -------------------------------------------------
 
@@ -457,7 +487,7 @@ export async function createRelayerInputs(
     const burnAccountProofs: (BurnAccountProof | FakeBurnAccountProof)[] = []
     for (let index = 0; index < circuitSize; index++) {
         if (index < burnAccountsAndAmounts.length) {
-            const { burnAccount, amountToClaim, chainId: entryChainId } = burnAccountsAndAmounts[index];
+            const { burnAccount, amount: amountToClaim, chainId: entryChainId } = burnAccountsAndAmounts[index];
             const { merkleProofs, nullifier, nextTotalMintedNoteHashLeaf } = getHashedInputs(
                 burnAccount,
                 amountToClaim,
@@ -548,7 +578,7 @@ export async function createRelayerInputs(
 export function getBackend(circuitSize: number, threads?: number) {
     console.log("initializing backend with circuit")
     threads = threads ?? getAvailableThreads()
-    console.log({ threads })
+    console.log({ threads, circuitSize })
     const byteCode = circuits[circuitSize].bytecode
     return new UltraHonkBackend(byteCode, { threads: threads }, { recursive: false });
 }

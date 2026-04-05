@@ -184,7 +184,6 @@ export interface RelayInputs {
 export type BackendPerSize = { [key: number]: UltraHonkBackend }
 //functions
 export type CreateRelayerInputsOpts = {
-    burnAccountSelector?:  (a: SpendableBurnAccount, b: SpendableBurnAccount) => number,
     fullNode?: PublicClient
     threads?: number;
     callData?: Hex;
@@ -238,4 +237,4 @@ export interface WormholeContractConfig {
     decimalsTokenPrice: Hex
 }
 
-export type SpendableBurnAccount = { burnAccount: SyncedBurnAccount, chainId: Hex, contract: Address, spendableBalance: bigint } 
+export type SpendableBurnAccount = { burnAccount: SyncedBurnAccount, chainId: Hex, contract: Address, amount: bigint } 

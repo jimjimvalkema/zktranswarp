@@ -1,7 +1,13 @@
 use reMintLib::{poseidon2_hasher, bulkReMint, BurnDataPublic, BurnDataPrivate, SignatureData};
 use constants::{MAX_TREE_DEPTH};
 
-global BURN_ADDRESSES_LEN: u32 = 2; 
+// 3 because it's optimal for utxo management
+// a user usually spends from an account, leaves tokens in that accounts, then creates a fresh account to collect refund from relayer.
+// so an user creates one new account per spend, keeps the original one
+// with size 1 = users accumulates refund burn accounts, +1 account
+// with size 2 = users can always mix in 1 refund account, 0 account
+// with size 3 = users can also mix in an additional account, -1 account
+global BURN_ADDRESSES_LEN: u32 = 3; 
 fn main(
     //----- public inputs
     root: pub Field,

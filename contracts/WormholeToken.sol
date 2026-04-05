@@ -9,7 +9,7 @@ import {ERC20WithWormHoleMerkleTree} from "./ERC20WithWormHoleMerkleTree.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {LeanIMTData, Hasher} from "zk-kit-lean-imt-custom-hash/InternalLeanIMT.sol";
 import {leanIMTPoseidon2} from "./leanIMTPoseidon2.sol";
-import {IVerifier} from "./reMint2Verifier.sol";
+import {IVerifier} from "./reMint3Verifier.sol";
 
 struct FeeData {
     uint256 tokensPerEthPrice;

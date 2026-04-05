@@ -104,7 +104,7 @@ yarn hardhat run scripts/deployPoseidon2.ts --network sepolia
 WormholeToken - [0x6B1474930d4e956A32c72074efe5e1cD279CB5b8](https://sepolia.etherscan.io/address/0x6B1474930d4e956A32c72074efe5e1cD279CB5b8)  
 
 
-reMint2Verifier - [0x0b85504e9D0A6A4A8BB079156F66f8e5C47caF1B](https://sepolia.etherscan.io/address/0x0b85504e9D0A6A4A8BB079156F66f8e5C47caF1B)
+reMint3Verifier - [0x0b85504e9D0A6A4A8BB079156F66f8e5C47caF1B](https://sepolia.etherscan.io/address/0x0b85504e9D0A6A4A8BB079156F66f8e5C47caF1B)
 reMint32Verifier - [0x80B904340a5005FC4B4AAefBb9357d54009B2889](https://sepolia.etherscan.io/address/0x80B904340a5005FC4B4AAefBb9357d54009B2889)   
 reMint100Verifier - [0xa3124d86e06C718EcDD1AdD52613726f04BD665d](https://sepolia.etherscan.io/address/0xa3124d86e06C718EcDD1AdD52613726f04BD665d)  
 ZKTranscriptLib - [0x6Ed252215c01A25A3389332E08F2C79157884c9C](https://sepolia.etherscan.io/address/0x6Ed252215c01A25A3389332E08F2C79157884c9C)  

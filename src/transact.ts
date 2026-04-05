@@ -1,6 +1,5 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { getAddress, toHex } from "viem";
-import type { WormholeTokenTest } from "../test/remint2.test.ts";
 import type { BackendPerSize, BurnAccount, PreSyncedTree, RelayInputs, SelfRelayInputs, UnsyncedBurnAccount, WormholeToken } from "./types.ts";
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { getDeploymentBlock } from "./syncing.ts";
@@ -167,7 +166,7 @@ export async function proofAndSelfRelay(
     recipient: Address,
     amount: bigint,
     burnViewKeyManager: BurnViewKeyManager,
-    wormholeToken: WormholeToken | WormholeTokenTest,
+    wormholeToken: WormholeToken,
     archiveNode: PublicClient,
     signingEthAccount: Address,
     { burnAddresses, threads, callData = "0x", callValue = 0n, callCanFail = false, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, maxTreeDepth, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD, powDifficulty, reMintLimit }:
@@ -222,6 +221,8 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
     const _root = BigInt(selfRelayInputs.publicInputs.root)
     const _snarkProof = selfRelayInputs.proof
     const _chainId = BigInt(selfRelayInputs.publicInputs.chain_id)
+    // TODO not true. Is crossChain can be set to false. So this check can only live in BurnWallet ?
+    // if(wallet.chain?.id && wallet.chain?.id !== Number(_chainId)) {throw new Error(`this proof can only be relayed in chainId ${Number(_chainId)}`)}
     const _signatureInputs =
     {
         amountToReMint: BigInt(selfRelayInputs.signatureInputs.amountToReMint),
@@ -232,7 +233,7 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
         callValue: BigInt(selfRelayInputs.signatureInputs.callValue)
 
     }
-    return await (wormholeTokenContract as WormholeTokenTest).write.reMint([
+    return await wormholeTokenContract.write.reMint([
         _root,
         _chainId,
         _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
@@ -241,7 +242,7 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
         _signatureInputs,
         // estimation is some time so high it goes over the per tx limit on sepolia
         // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
-    ], { account: wallet.account?.address as Address, gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined })
+    ], { account: wallet.account?.address as Address, gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined, chain:wallet.chain })
 }
 
 /**
@@ -259,6 +260,8 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
     const _root = BigInt(relayInputs.publicInputs.root)
     const _snarkProof = relayInputs.proof
     const _chainId = BigInt(relayInputs.publicInputs.chain_id)
+    // TODO not true. Is crossChain can be set to false. So this check can only live in BurnWallet ?
+    // if(wallet.chain?.id && wallet.chain?.id !== Number(_chainId)) {throw new Error(`this proof can only be relayed in chainId ${Number(_chainId)}`)}
     const _signatureInputs =
     {
         amountToReMint: BigInt(relayInputs.signatureInputs.amountToReMint),
@@ -280,7 +283,7 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
         relayerAddress: relayInputs.signatureInputs.feeData.relayerAddress,
 
     }
-    return await (wormholeTokenContract as WormholeTokenTest).write.reMintRelayer([
+    return await (wormholeTokenContract).write.reMintRelayer([
         _root,
         _chainId,
         _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
@@ -292,6 +295,7 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
         // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
     ], {
         account: account ?? wallet.account?.address ?? (await wallet.getAddresses())[0],
-        gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined
+        gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined, 
+        chain:wallet.chain
     })
 }
