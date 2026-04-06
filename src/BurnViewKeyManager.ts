@@ -1,7 +1,7 @@
 // PrivateWallet is a wrapper that exposes some of viem's WalletClient functions and requires them to only ever use one ethAccount
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
-import { hashMessage, padHex, toHex } from "viem";
+import { ethAddress, hashMessage, padHex, toHex } from "viem";
 import type { BurnAccount, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData, UnknownBurnAccountRecoverable, UnknownBurnAccountImportable, DerivedBurnAccountImportable } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, isValidPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
@@ -40,7 +40,7 @@ export class BurnViewKeyManager {
      */
     constructor(
         viemWallet: WalletClient,
-        { viewKeyData, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId, ethAddress }:
+        { viewKeyData, acceptedChainIds = [1], chainId, ethAddress }:
             { viewKeyData?: FullViewKeyData, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number, ethAddress?: Address } = {}
     ) {
         this.viemWallet = viemWallet
@@ -64,36 +64,28 @@ export class BurnViewKeyManager {
         if (viewKeyData === undefined) {
             // set default
             this.privateData = {
-                viewKeySigMessage: viewKeySigMessage,
                 burnAccounts: {}
             }
         } else {
             // check input
-            if (viewKeySigMessage !== viewKeyData.viewKeySigMessage) {
-                throw new Error(`cant change viewKey message of a imported account`)
-            }
             this.privateData = structuredClone(viewKeyData)
         }
         //this.#createBurnAccountsKeys({ chainId: chainId, difficulty: powDifficulty, ethAccount: ethAddress })
     }
 
     // prompts user to sign to create viewing keys and also store pubKey of eth account
-    async #connect(ethAccount: Address, message = this.privateData.viewKeySigMessage) {
-        if (this.privateData.burnAccounts[ethAccount].pubKey !== undefined && this.privateData.detViewKeyRoot !== undefined) {
-            return { viewKeyRoot: this.privateData.detViewKeyRoot as Hex, pubKey: this.privateData.burnAccounts[ethAccount].pubKey }
+    async #connect(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE) {
+        this.privateData.burnAccounts[ethAccount] ??= {detViewKeyRoot:undefined, pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {} };
+        if (this.privateData.burnAccounts[ethAccount].pubKey !== undefined && this.privateData.burnAccounts[ethAccount].detViewKeyRoot !== undefined) {
+            return { viewKeyRoot: this.privateData.burnAccounts[ethAccount].detViewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount].pubKey }
         } else {
             const signature = await this.viemWallet.signMessage({ message: message, account: ethAccount })
             const hash = hashMessage(message);
             const viewKeyRoot = toHex(getViewingKey({ signature: signature }));
             const { pubKeyX, pubKeyY } = await extractPubKeyFromSig({ hash, signature })
-            if (message !== this.privateData.viewKeySigMessage) {
-                console.warn(`
-                    Connecting with a different message the that is stored at BurnViewKeyManager.privateData.viewKeySigMessage
-                    The rootViewKey will be returned but not stored in privateData! 
-                    `)
-            } else {
-                this.privateData.detViewKeyRoot = viewKeyRoot
-            }
+
+            this.privateData.burnAccounts[ethAccount].detViewKeyRoot = viewKeyRoot
+
             this.privateData.burnAccounts[ethAccount].pubKey = { x: pubKeyX, y: pubKeyY }
             return { viewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount] }
         }
@@ -107,7 +99,7 @@ export class BurnViewKeyManager {
     }
 
     #createBurnAccountsKeysHex({ chainIdHex, difficultyHex, ethAccount }: { chainIdHex: Hex, difficultyHex: Hex, ethAccount: Address }) {
-        this.privateData.burnAccounts[ethAccount] ??= { pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {} };
+        this.privateData.burnAccounts[ethAccount] ??= { pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {}, detViewKeyRoot:undefined };
         this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex] ??= {};
         this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyHex] ??= { derivedBurnAccounts: [], unknownBurnAccounts: {} };
     }
@@ -130,7 +122,7 @@ export class BurnViewKeyManager {
         // extra safety, if burnAccount.difficulty is not padded this wont pad it
         // but key used for storage is because if it ins't duplicate entries can be created
         const difficultyPadded = padHex(burnAccount.difficulty, { size: 32 })
-        this.#createBurnAccountsKeysHex({ chainIdHex: burnAccount.chainId, difficultyHex: difficultyPadded, ethAccount:burnAccount.ethAccount })
+        this.#createBurnAccountsKeysHex({ chainIdHex: burnAccount.chainId, difficultyHex: difficultyPadded, ethAccount: burnAccount.ethAccount })
         if (isDerivedBurnAccount(burnAccount)) {
             this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[burnAccount.chainId][difficultyPadded].derivedBurnAccounts[burnAccount.viewingKeyIndex] = burnAccount
         } else {
@@ -147,19 +139,19 @@ export class BurnViewKeyManager {
      * @notice Prompts the user to sign a message if the deterministic view key root is not stored yet.
      * @returns The deterministic view key root.
      */
-    async getDeterministicViewKeyRoot(ethAccount: Address, message = this.privateData.viewKeySigMessage): Promise<Hex> {
-        if (this.privateData.detViewKeyRoot === undefined) {
+    async getDeterministicViewKeyRoot(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE): Promise<Hex> {
+        if ( this.privateData.burnAccounts[ethAccount] === undefined || this.privateData.burnAccounts[ethAccount].detViewKeyRoot === undefined) {
             await this.#connect(ethAccount, message)
         }
-        return this.privateData.detViewKeyRoot as Hex
+        return  this.privateData.burnAccounts[ethAccount].detViewKeyRoot as Hex
     }
 
     /**
      * @notice Prompts the user to sign a message if the public key is not stored yet.
      * @returns The wallet's spending public key as `{ x, y }`.
      */
-    async getPubKey(ethAccount: Address, message = this.privateData.viewKeySigMessage) {
-        if (this.privateData.burnAccounts[ethAccount].pubKey === undefined) {
+    async getPubKey(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE) {
+        if (this.privateData.burnAccounts[ethAccount] === undefined  || this.privateData.burnAccounts[ethAccount].pubKey === undefined) {
             await this.#connect(ethAccount, message)
         }
         return this.privateData.burnAccounts[ethAccount].pubKey as { x: Hex, y: Hex }
@@ -205,7 +197,7 @@ export class BurnViewKeyManager {
      */
     async createBurnAccount(
         chainId: number, difficulty: Hex,
-        { isDeterministic, spendingPubKeyX, signingEthAccount, powNonce, viewingKey, viewingKeyIndex, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }:
+        { isDeterministic, spendingPubKeyX, signingEthAccount, powNonce, viewingKey, viewingKeyIndex, async = false, viewKeyMessage = VIEWING_KEY_SIG_MESSAGE }:
             { isDeterministic?: boolean, spendingPubKeyX?: Hex, signingEthAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: number, async?: boolean, viewKeyMessage?: string } = {}
     ) {
         signingEthAccount ??= this.viemWallet.account?.address as Address
@@ -284,7 +276,7 @@ export class BurnViewKeyManager {
     async createBurnAccountsBulk(
         amountOfBurnAccounts: number, chainId: number, difficulty: Hex,
         { signingEthAccount, startingViewKeyIndex, async = false }:
-            { signingEthAccount?: Address, startingViewKeyIndex?: number, async?: boolean} = {}
+            { signingEthAccount?: Address, startingViewKeyIndex?: number, async?: boolean } = {}
     ) {
         signingEthAccount ??= this.viemWallet.account?.address as Address
         this.#createBurnAccountsKeys({ chainId, ethAccount: signingEthAccount, difficulty })
@@ -348,7 +340,7 @@ export class BurnViewKeyManager {
         const burnAccounts: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>["burnAccounts"] = {};
         for (const ethAccount of Object.keys(this.privateData.burnAccounts) as Address[]) {
             const ethData = this.privateData.burnAccounts[ethAccount];
-            burnAccounts[ethAccount] = { pubKey: ethData.pubKey, detViewKeyCounter: ethData.detViewKeyCounter, burnAccounts: {} };
+            burnAccounts[ethAccount] = { detViewKeyCounter: ethData.detViewKeyCounter, burnAccounts: {} };
             for (const chainId of Object.keys(ethData.burnAccounts) as Hex[]) {
                 burnAccounts[ethAccount].burnAccounts[chainId] = {};
                 for (const difficulty of Object.keys(ethData.burnAccounts[chainId]) as Hex[]) {
@@ -360,7 +352,7 @@ export class BurnViewKeyManager {
                 }
             }
         }
-        const vieKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable> = { viewKeySigMessage: this.privateData.viewKeySigMessage, detViewKeyRoot: this.privateData.detViewKeyRoot, burnAccounts };
+        const vieKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable> = { burnAccounts };
         return vieKeyData
     }
 
@@ -374,25 +366,57 @@ export class BurnViewKeyManager {
      */
     async importViewKeyWalletData(
         importedViewKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>, tokenAddress: Address, archiveNode: PublicClient,
-        { forceReSign = true, forcePow = false, async = false, fullNode }: { forceReSign?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient } = {}
+        { forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode, onlySignInWith }: { forceReSign?: boolean, forceReHashViewKey?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient, onlySignInWith?: Address } = {}
     ) {
         fullNode ??= archiveNode;
-        this.privateData.detViewKeyRoot = importedViewKeyData.detViewKeyRoot
-        this.privateData.viewKeySigMessage = importedViewKeyData.viewKeySigMessage
         const allBurnAccounts = BurnAccountToFlatArrExportedData(importedViewKeyData)
-        // also adds all needed keys to this.privateData
-        await Promise.all(allBurnAccounts.map((b) => this.importBurnAccount(b, tokenAddress, archiveNode, { forceReSign, forcePow, async, fullNode })))
-        for (const ethAccount of Object.keys(importedViewKeyData.burnAccounts)) {
+
+        // ---------- sign in before import -------------
+        // so the user only gets one request per ethAccount+message combo
+
+        const seen = new Set<string>();
+        const toConnect = allBurnAccounts.filter((b) => {
+            if (onlySignInWith && b.ethAccount !== onlySignInWith) return false;
+            const key = `${b.ethAccount}:${"viewKeySigMessage" in b ? b.viewKeySigMessage : ""}`;
+            return !seen.has(key) && !!seen.add(key);
+        });
+
+        // try and connect all ethAccount+message combos, only only once, no every burn account (what `(accountsToImport.map((b) => this.importBurnAccount())` would do)
+        const results = await Promise.allSettled(
+            toConnect.map((b) => this.#connect(b.ethAccount, "viewKeySigMessage" in b ? b.viewKeySigMessage : undefined))
+        );
+
+        // get the ethAccount+message combo key who are rejected
+        const rejectedKeys = new Set(
+            toConnect
+                .filter((_, i) => results[i].status === "rejected")
+                .map((b) => `${b.ethAccount}:${"viewKeySigMessage" in b ? b.viewKeySigMessage : ""}`)
+        );
+        if (rejectedKeys.size > 0) console.warn(`Some accounts not imported since user rejected the request: ${[...rejectedKeys]}`);
+
+        // remove burnAccounts with that rejected ethAccount+message combo and filter by onlySignInWith
+        const accountsToImport = allBurnAccounts.filter((b) => {
+            if (onlySignInWith && b.ethAccount !== onlySignInWith) return false;
+            const key = `${b.ethAccount}:${"viewKeySigMessage" in b ? b.viewKeySigMessage : ""}`;
+            return !rejectedKeys.has(key);
+        });
+
+        await Promise.all(accountsToImport.map((b) => this.importBurnAccount(b, tokenAddress, archiveNode, { forceReSign, forceReHashViewKey, forcePow, async, fullNode })));
+
+        const ethAccountsToImport = onlySignInWith
+            ? Object.keys(importedViewKeyData.burnAccounts).filter((a) => a === onlySignInWith)
+            : Object.keys(importedViewKeyData.burnAccounts);
+        for (const ethAccount of ethAccountsToImport) {
             // only if the count is higher update it
             this.privateData.burnAccounts[ethAccount] ??= {
+                detViewKeyRoot: undefined,
+                pubKey: undefined,
                 detViewKeyCounter: importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter,
                 burnAccounts: {}
             }
             if (this.privateData.burnAccounts[ethAccount].detViewKeyCounter < importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter) {
                 this.privateData.burnAccounts[ethAccount].detViewKeyCounter = importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter
             }
-            // pubKey is optional, so only set if parsedData has it
-            this.privateData.burnAccounts[ethAccount].pubKey = importedViewKeyData.burnAccounts[ethAccount as Address].pubKey ? importedViewKeyData.burnAccounts[ethAccount as Address].pubKey : this.privateData.burnAccounts[ethAccount].pubKey
         }
     }
     // { ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, difficulty = this.defaults.powDifficulty, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }
@@ -404,7 +428,7 @@ export class BurnViewKeyManager {
      * @param param3 
      */
     async importBurnAccount(importedBurnAccount: AnyBurnAccount, tokenAddress: Address, archiveNode: PublicClient,
-        { forceReSign = true, forcePow = false, async = false, fullNode }: { fullNode?: PublicClient, forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
+        { forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode }: { forceReHashViewKey?: boolean, fullNode?: PublicClient, forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
     ) {
         fullNode ??= archiveNode
         const idBurnAccount = identifyBurnAccount(importedBurnAccount);
@@ -420,7 +444,7 @@ export class BurnViewKeyManager {
                     viewingKeyIndex: idBurnAccount.account.viewingKeyIndex,
                     viewKeyMessage: idBurnAccount.account.viewKeySigMessage,
                     powNonce: forcePow === false && "powNonce" in idBurnAccount.account ? BigInt(idBurnAccount.account.powNonce) : undefined,
-                    viewingKey: forceReSign === false && "viewingKey" in idBurnAccount.account ? BigInt(idBurnAccount.account.viewingKey) : undefined,
+                    viewingKey: forceReHashViewKey === false && "viewingKey" in idBurnAccount.account ? BigInt(idBurnAccount.account.viewingKey) : undefined,
                     async: async,
                     spendingPubKeyX: forceReSign === false && "spendingPubKeyX" in idBurnAccount.account ? idBurnAccount.account.spendingPubKeyX : undefined
                 }

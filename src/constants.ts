@@ -1,7 +1,7 @@
 import type { Address, Hex } from "viem";
 import { getAddress, padHex, toHex } from "viem"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt";
-import deployedAddressesSepolia from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
+//import deployedAddressesSepolia from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
 
 // ---- contract args -------------
 // at 17n you got 10 years of bitcoin network doing hashes non stop
@@ -54,10 +54,10 @@ export const FIELD_MODULUS = 218882428718392752222464057452572750885483644004160
 // estimation is some time so high it goes over the per tx limit on sepolia
 export const GAS_LIMIT_TX = 16000000n
 
-export const WORMHOLE_TOKEN_DEPLOYMENT_BLOCK: { [chainId: number]: bigint; } = {
-    11155111: 10369210n // https://sepolia.etherscan.io/tx/0xcaba5105591843eae94db3dea983086a23c01af20f45460f415e4ff238122ffd
-}
-
+// Multiplier (as percentage) on top of estimateGas to account for the merkle tree depth
+// increasing by 1 between estimation and mining (e.g. another insert lands first).
+// At depth 12 one jump adds ~59k gas (~14.3% of ~415k total), 20% gives ~6% margin.
+export const GAS_ESTIMATE_BUFFER_PERCENT = 120n
 
 //------------- zero values ---------------------------------
 export const EMPTY_UNFORMATTED_MERKLE_PROOF: LeanIMTMerkleProof<bigint> = {
@@ -125,8 +125,8 @@ export const RE_MINT_RELAYER_GAS_DEFAULT_L1 = {
 export const RE_MINT_RELAYER_GAS: { [chainId: Hex]: { [contract: Address]: { [circuitSize: number]: Hex } } } = {
     // [toHex(1)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
     // [toHex(31337)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
-    [toHex(11155111)]: {
-        [deployedAddressesSepolia["wormholeToken#WormholeToken"]]: RE_MINT_RELAYER_GAS_DEFAULT_L1
-    },
+    // [toHex(11155111)]: {
+    //     [deployedAddressesSepolia["wormholeToken#WormholeToken"]]: RE_MINT_RELAYER_GAS_DEFAULT_L1
+    // },
     //[toHex(17000)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
 } as const

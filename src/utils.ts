@@ -115,11 +115,11 @@ function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDif
     }
 
 
-    return burnAccounts
+    return burnAccounts.filter((ba) => ba !== undefined)
 }
 
 /**
- * 
+ *
  * Retrieves stored burn accounts, with optional filtering by chain ID, difficulty,
  * and account type.
  *

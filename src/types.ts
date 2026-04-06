@@ -241,7 +241,8 @@ export interface WormholeContractConfig {
     ACCEPTED_CHAIN_IDS: Hex[],
     EIP712_NAME: string,
     EIP712_VERSION: string,
-    decimalsTokenPrice: Hex
+    decimalsTokenPrice: Hex,
+    DEPLOYMENT_BLOCK: bigint
 }
 
 export type SpendableBurnAccount = { burnAccount: SyncedBurnAccount, chainId: Hex, contract: Address, amount: bigint } 

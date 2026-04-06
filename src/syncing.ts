@@ -3,21 +3,12 @@ import type { LeanIMTHashFunction } from "@zk-kit/lean-imt"
 import { LeanIMT } from "@zk-kit/lean-imt"
 import type { Address, Hex, PublicClient, WalletClient } from "viem"
 import { bytesToHex, concatHex, getAddress, getContract, hexToBytes, sliceHex, toHex } from "viem"
-import { ENCRYPTED_TOTAL_MINTED_PADDING, WORMHOLE_TOKEN_DEPLOYMENT_BLOCK } from "./constants.ts"
+import { ENCRYPTED_TOTAL_MINTED_PADDING } from "./constants.ts"
 import type { BurnAccount, PreSyncedTree, SyncedBurnAccount, WormholeToken } from "./types.ts"
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { hashNullifier } from "./hashing.ts"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
 import { getAllBurnAccounts, getWormholeTokenContract, wormholeTokenAbi } from "./utils.ts"
-
-export function getDeploymentBlock(chainId: number) {
-    if (Number(chainId) in WORMHOLE_TOKEN_DEPLOYMENT_BLOCK) {
-        return WORMHOLE_TOKEN_DEPLOYMENT_BLOCK[chainId]
-    } else {
-        //console.warn(`no deployment block found for chainId: ${chainId.toString()}, defaulted to 0n`)
-        return 0n
-    }
-}
 
 export const poseidon2IMTHashFunc: LeanIMTHashFunction = (a: bigint, b: bigint) => poseidon2Hash([a, b])
 
@@ -28,7 +19,7 @@ export async function getSyncedMerkleTree(
     fullNode ??= archiveNode;
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
     const wormholeTokenArchive = getWormholeTokenContract(tokenAddress, { public: archiveNode })
-    deploymentBlock ??= getDeploymentBlock(await fullNode.getChainId())
+    deploymentBlock ??= await wormholeTokenFull.read.DEPLOYMENT_BLOCK()
     let firstSyncBlock = deploymentBlock
     let originalStartSyncBlock = deploymentBlock
     let preSyncedLeaves: bigint[] = []

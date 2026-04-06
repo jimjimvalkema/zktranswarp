@@ -2,10 +2,9 @@ import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { getAddress, toHex } from "viem";
 import type { BackendPerSize, BurnAccount, PreSyncedTree, RelayInputs, SelfRelayInputs, UnsyncedBurnAccount, WormholeToken } from "./types.ts";
 import { UltraHonkBackend } from "@aztec/bb.js";
-import { getDeploymentBlock } from "./syncing.ts";
 import { getBurnAddressSafe, hashBlindedAddressData, hashPow, isValidPowNonce } from "./hashing.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
-import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, GAS_LIMIT_TX } from "./constants.ts";
+import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, GAS_ESTIMATE_BUFFER_PERCENT, GAS_LIMIT_TX } from "./constants.ts";
 import { createRelayerInputs } from "./proving.ts";
 import type { BurnWallet } from "./BurnWallet.ts";
 import { getAcceptedChainIdFromContract, getWormholeTokenContract } from "./utils.ts";
@@ -44,7 +43,9 @@ export async function burn(
     if (treeSize >= fullTreeSize) { throw new Error("Tree is FULL this tx WILL RESULT IS LOSS OF ALL FUNDS SEND. DO NOT SEND ANY BURN TRANSACTION!!!") }
     if (treeSize + safeDistanceFromFullTree >= fullTreeSize) { throw new Error("Tree is almost full and the risk is high this burn tx will result in loss of all funds send") }
     if (newBurnBalance >= reMintLimit) { throw new Error(`This transfer will cause the balance to go over the RE_MINT_LIMIT. This wil result in LOSS OF ALL FUNDS OVER THE LIMIT!! DO NOT SEND THIS TRANSACTION!!\n new balance: ${newBurnBalance} \n limit:       ${reMintLimit}`) }
-    return await wormholeTokenFull.write.transfer([burnAddress, amount], { account: signingEthAccount, chain: null })
+
+    const estimatedGas = await wormholeTokenFull.estimateGas.transfer([burnAddress, amount], { account: signingEthAccount })
+    return await wormholeTokenFull.write.transfer([burnAddress, amount], { account: signingEthAccount, chain: null, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
 }
 
 /**
@@ -173,7 +174,7 @@ export async function proofAndSelfRelay(
         { burnAddresses?: Address[], threads?: number, callData?: Hex, callCanFail?: boolean, callValue?: bigint, preSyncedTree?: PreSyncedTree, backends?: BackendPerSize, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint, circuitSize?: number, maxTreeDepth?: number, encryptedBlobLen?: number, powDifficulty?: Hex, reMintLimit?: Hex } = {}
 ) {
     const chainId = BigInt(await archiveNode.getChainId())
-    deploymentBlock ??= getDeploymentBlock(Number(chainId))
+    deploymentBlock ??= await wormholeToken.read.DEPLOYMENT_BLOCK()
 
     const { relayInputs: selfRelayInputs } = await createRelayerInputs(
         recipient,
@@ -233,16 +234,21 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
         callValue: BigInt(selfRelayInputs.signatureInputs.callValue)
 
     }
-    return await wormholeTokenContract.write.reMint([
+    const reMintArgs = [
         _root,
         _chainId,
         _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
         _nullifiers,               // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         _snarkProof,
         _signatureInputs,
-        // estimation is some time so high it goes over the per tx limit on sepolia
-        // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
-    ], { account: wallet.account?.address as Address, gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined, chain:wallet.chain })
+    ] as const
+    const accountAddress = wallet.account?.address as Address
+    // estimation is some time so high it goes over the per tx limit on sepolia
+    // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
+    const gas = _totalMintedLeafs.length > 32
+        ? GAS_LIMIT_TX
+        : (await wormholeTokenContract.estimateGas.reMint(reMintArgs, { account: accountAddress })) * GAS_ESTIMATE_BUFFER_PERCENT / 100n
+    return await wormholeTokenContract.write.reMint(reMintArgs, { account: accountAddress, gas, chain: wallet.chain })
 }
 
 /**
@@ -283,7 +289,7 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
         relayerAddress: relayInputs.signatureInputs.feeData.relayerAddress,
 
     }
-    return await (wormholeTokenContract).write.reMintRelayer([
+    const reMintRelayerArgs = [
         _root,
         _chainId,
         _totalMintedLeafs,         // a commitment inserted in the merkle tree, tracks how much is spend after this transfer hash(prev_total_minted+amount, prev_account_nonce, viewing_key)
@@ -291,11 +297,16 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
         _snarkProof,
         _signatureInputs,
         _feeData
-        // estimation is some time so high it goes over the per tx limit on sepolia
-        // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
-    ], {
-        account: account ?? wallet.account?.address ?? (await wallet.getAddresses())[0],
-        gas: _totalMintedLeafs.length > 32 ? GAS_LIMIT_TX : undefined, 
+    ] as const
+    const relayerAccount = account ?? wallet.account?.address ?? (await wallet.getAddresses())[0]
+    // estimation is some time so high it goes over the per tx limit on sepolia
+    // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
+    const gas = _totalMintedLeafs.length > 32
+        ? GAS_LIMIT_TX
+        : (await wormholeTokenContract.estimateGas.reMintRelayer(reMintRelayerArgs, { account: relayerAccount })) * GAS_ESTIMATE_BUFFER_PERCENT / 100n
+    return await wormholeTokenContract.write.reMintRelayer(reMintRelayerArgs, {
+        account: relayerAccount,
+        gas,
         chain:wallet.chain
     })
 }

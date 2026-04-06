@@ -78,6 +78,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
     uint16 public MAX_TREE_DEPTH;
 
     bool public IS_CROSS_CHAIN;
+    uint256 public DEPLOYMENT_BLOCK;
 
     /**
      * 
@@ -118,6 +119,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
         RE_MINT_LIMIT = bytes32(_reMintLimit);
         MAX_TREE_DEPTH = _maxTreeDepth;
         IS_CROSS_CHAIN = _isCrossChain;
+        DEPLOYMENT_BLOCK = block.number;
     }
 
     function treeSize() public view  returns (uint256) {

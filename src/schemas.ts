@@ -302,13 +302,12 @@ export type PubKeyHex = z.infer<typeof PubKeyHexSchema>;
 
 
 export const ViewKeyDataSchema = <T extends z.ZodTypeAny>(burnAccountSchema: T) => z.object({
-    viewKeySigMessage: z.string(),
-    detViewKeyRoot: HexSchema.optional(),
     burnAccounts: keyValidatedRecord(
         AddressSchema,
         z.object({
             pubKey: PubKeyHexSchema.optional(),
             detViewKeyCounter: z.number().int().nonnegative(),
+            detViewKeyRoot: HexSchema.optional(),
             burnAccounts: keyValidatedRecord(
                 Hex32Schema,
                 keyValidatedRecord(
@@ -343,7 +342,6 @@ export type FullViewKeyData = z.infer<typeof FullViewKeyDataSchema>;
 // manually defined using WithReadonlyBase-wrapped types to avoid structural mismatch with Zod inference
 export type ExportedViewKeyData<T = BurnAccountImportable> = Omit<FullViewKeyData, 'burnAccounts'> & {
     burnAccounts: Record<import("viem").Address, {
-        pubKey?: PubKeyHex;
         detViewKeyCounter: number;
         burnAccounts: Record<import("viem").Hex, Record<import("viem").Hex, {
             derivedBurnAccounts: T[];

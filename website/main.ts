@@ -2,16 +2,13 @@ import { createPublicClient, createWalletClient, custom, formatUnits, getAddress
 import type { Address, Hex, WalletClient } from 'viem'
 import { sepolia } from 'viem/chains'
 import 'viem/window';
-import type { WormholeToken, SelfRelayInputs, BurnAccount, PreSyncedTree, PreSyncedTreeStringifyable } from '../src/types.js';
-import { selfRelayTx, superSafeBurn } from '../src/transact.js';
+import type { WormholeToken, SelfRelayInputs, BurnAccount } from '../src/types.js';
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import sepoliaDeployments from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
-import type { WormholeTokenTest } from '../test/reMint3.test.ts';
 
 import * as viem from 'viem'
-import { ADDED_BITS_SECURITY, POW_BITS } from '../src/constants.ts';
-import { syncBurnAccount, getSyncedMerkleTree, poseidon2IMTHashFunc } from '../src/syncing.ts';
-import { LeanIMT } from '@zk-kit/lean-imt';
+import { ADDED_BITS_SECURITY, GAS_ESTIMATE_BUFFER_PERCENT, POW_BITS } from '../src/constants.ts';
+import { BurnWallet } from '../src/BurnWallet.ts';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // @TODO update when ever a new contract is used
@@ -81,6 +78,11 @@ const totalSelectedSpendableEl = document.getElementById("totalSelectedSpendable
 const burnRecipientSelectEl = document.getElementById("burnRecipientSelect") as HTMLSelectElement
 const burnAmountInputEl = document.getElementById("burnAmountInput")
 const pendingRelayTxsEl = document.getElementById("pendingRelayTxs")
+
+// helper: getBurnAccounts types ethSigner/chainId/difficulty as required but they default at runtime
+async function getBurnAccounts(burnWallet: BurnWallet, tokenAddress: Address): Promise<BurnAccount[]> {
+    return await burnWallet.getBurnAccounts(tokenAddress, { type: "derived" })
+}
 
 const BURN_ACCOUNTS_PER_PAGE = 5
 let currentBurnPage = 0
@@ -173,51 +175,18 @@ export async function getRelayInputsFromLocalStorage(): Promise<SelfRelayInputs[
     return allRelayerInputClean
 }
 
-// --- merkle tree localStorage ---
+// --- BurnWallet localStorage ---
 
-function savePreSyncedTree(preSyncedTree: PreSyncedTree) {
-    const serialized: PreSyncedTreeStringifyable = {
-        exportedNodes: preSyncedTree.tree.export(),
-        lastSyncedBlock: toHex(preSyncedTree.lastSyncedBlock),
-        firstSyncedBlock: toHex(preSyncedTree.firstSyncedBlock),
-    }
-    localStorage.setItem(`merkleTree_${wormholeTokenAddress}`, JSON.stringify(serialized))
+function burnWalletLsKey() {
+    return `burnWalletData_${wormholeTokenAddress}`
 }
 
-function loadPreSyncedTree(): PreSyncedTree | null {
-    const raw = localStorage.getItem(`merkleTree_${wormholeTokenAddress}`)
-    if (!raw) return null
-    try {
-        const data = JSON.parse(raw) as PreSyncedTreeStringifyable
-        const tree = LeanIMT.import(poseidon2IMTHashFunc, data.exportedNodes)
-        return { tree, lastSyncedBlock: BigInt(data.lastSyncedBlock), firstSyncedBlock: BigInt(data.firstSyncedBlock) }
-    } catch {
-        return null
-    }
+function saveBurnWallet(burnWallet: BurnWallet) {
+    localStorage.setItem(burnWalletLsKey(), burnWallet.exportWallet({ paranoidMode: false }))
 }
 
-// ---
-
-// --- private wallet localStorage ---
-
-function privateWalletLsKey(ethAccount: Address) {
-    return `burnWalletData_${ethAccount}`
-}
-
-function savePrivateWalletData(privateWallet: BurnViewKeyManager) {
-    localStorage.setItem(privateWalletLsKey(privateWallet.privateData.ethAccount), JSON.stringify(privateWallet.privateData))
-}
-
-function loadPrivateWalletData(ethAccount: Address): ViewKeyData | null {
-    const raw = localStorage.getItem(privateWalletLsKey(ethAccount))
-    if (!raw) return null
-    try {
-        const data = JSON.parse(raw) as ViewKeyData
-        if (data.ethAccount?.toLowerCase() !== ethAccount.toLowerCase()) return null
-        return data
-    } catch {
-        return null
-    }
+function loadBurnWalletData(): string | null {
+    return localStorage.getItem(burnWalletLsKey())
 }
 
 // ---
@@ -238,7 +207,6 @@ async function setNonWalletInfo(wormholeToken: WormholeToken) {
 async function updateWalletInfoUi(
     wormholeTokenWallet: WormholeToken,
     publicAddress: Address,
-    burnAccount?: BurnAccount,
     showBurnMsg = false
 ) {
 
@@ -247,9 +215,16 @@ async function updateWalletInfoUi(
     const publicBalance = await wormholeTokenWallet.read.balanceOf([publicAddress])
     everyClass(".publicBalance", (el) => el.innerText = formatUnits(publicBalance, decimals))
     //@ts-ignore
-    const privateWallet = window.privateWallet as BurnViewKeyManager | undefined
-    const allBurnAccounts = privateWallet ? getDeterministicBurnAccounts(privateWallet) : [];
-    if (privateWallet && allBurnAccounts.length > 0) {
+    const burnWallet = window.burnWallet as BurnWallet | undefined
+    if (!burnWallet) return
+
+    let allBurnAccounts: BurnAccount[]
+    try {
+        allBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
+    } catch {
+        return
+    }
+    if (allBurnAccounts.length > 0) {
         let dotCount = 0;
         const burnMsg = showBurnMsg ? POW_EXPLANATION_MSG : "" + `<br><br>`
         const powInterval = setInterval(() => {
@@ -261,32 +236,45 @@ async function updateWalletInfoUi(
                 "----------Syncing burn Accounts" + ".".repeat(dotCount)
                 , true, true,false);
         }, 500);
-        const syncPromises = allBurnAccounts.map((ba) =>
-            syncBurnAccount({ wormholeToken: wormholeTokenWallet, burnAccount: ba, archiveNode: publicClient })
-                .then((synced) => { privateWallet.importBurnAccount(synced) })
-        )
-        await Promise.all(syncPromises)
+        const burnAddressesToSync = allBurnAccounts.map((ba) => ba.burnAddress)
+        await burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync })
         await sleep(500)
         clearInterval(powInterval);
-        updateBurnAccountsListUi(getDeterministicBurnAccounts(privateWallet), decimals)
+        // re-fetch after sync to get updated sync data
+        allBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
+        saveBurnWallet(burnWallet)
+        updateBurnAccountsListUi(allBurnAccounts, decimals)
     }
 }
 
 // --- burn address list in walletUi ---
 
 let cachedDecimals = 18
+let cachedBurnAccounts: BurnAccount[] = []
 let powDotInterval: ReturnType<typeof setInterval> | null = null
 
 function updateTotalSelectedSpendable() {
     //@ts-ignore
-    const privateWallet = window.privateWallet as BurnViewKeyManager | undefined
-    if (!privateWallet) { totalSelectedSpendableEl!.textContent = "0"; return }
+    const burnWallet = window.burnWallet as BurnWallet | undefined
+    if (!burnWallet) { totalSelectedSpendableEl!.textContent = "0"; return }
 
     let total = 0n
+    let allBurnAccounts: BurnAccount[]
+    try {
+        // getBurnAccounts is async but we need sync access here — use cached list
+        allBurnAccounts = cachedBurnAccounts
+    } catch {
+        totalSelectedSpendableEl!.textContent = "0"
+        return
+    }
     for (const addr of selectedRemintAddresses) {
-        const ba = getDeterministicBurnAccounts(privateWallet).find((b) => b?.burnAddress === addr)
-        if (ba && 'spendableBalance' in ba && ba.spendableBalance !== undefined) {
-            total += BigInt(ba.spendableBalance)
+        const ba = allBurnAccounts.find((b) => b?.burnAddress === addr)
+        if (ba && 'syncData' in ba && ba.syncData) {
+            const chainId = toHex(sepolia.id)
+            const syncEntry = ba.syncData[chainId]?.[wormholeTokenAddress]
+            if (syncEntry) {
+                total += BigInt(syncEntry.spendableBalance)
+            }
         }
     }
     totalSelectedSpendableEl!.textContent = formatUnits(total, cachedDecimals)
@@ -294,6 +282,7 @@ function updateTotalSelectedSpendable() {
 
 function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number) {
     cachedDecimals = decimals
+    cachedBurnAccounts = burnAccounts
     burnAccountsListEl!.innerHTML = ""
 
     // stop any existing dot animation
@@ -335,7 +324,7 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
     const pendingSpans: HTMLElement[] = []
 
     for (let i = startIndex; i < pageEndIndex; i++) {
-        const burnAccount = burnAccounts[i] as SyncedBurnAccountDet
+        const burnAccount = burnAccounts[i]
         const li = document.createElement("li")
         li.style.marginBottom = "0.4em"
         li.id = `burnAccountLi_${i}`
@@ -377,15 +366,17 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
             const isFirstAccount = i === 0
             infoDiv.style.display = isFirstAccount ? "block" : "none"
 
-            const isSynced = 'totalBurned' in burnAccount && burnAccount.totalBurned !== undefined
-            if (isSynced) {
-                const synced = burnAccount as SyncedBurnAccountNonDet
+            const chainId = toHex(sepolia.id)
+            const syncEntry = ('syncData' in burnAccount && burnAccount.syncData)
+                ? burnAccount.syncData[chainId]?.[wormholeTokenAddress]
+                : undefined
+            if (syncEntry) {
                 infoDiv.innerHTML =
                     `burn address: ${burnAccount.burnAddress}<br>` +
-                    `burned balance: ${formatUnits(BigInt(synced.totalBurned), decimals)}<br>` +
-                    `private spent balance: ${formatUnits(BigInt(synced.totalSpent), decimals)}<br>` +
-                    `spendable balance: ${formatUnits(BigInt(synced.spendableBalance), decimals)}<br>` +
-                    `account nonce (txs made): ${Number(synced.accountNonce)}`
+                    `burned balance: ${formatUnits(BigInt(syncEntry.totalBurned), decimals)}<br>` +
+                    `private minted balance: ${formatUnits(BigInt(syncEntry.totalMinted), decimals)}<br>` +
+                    `spendable balance: ${formatUnits(BigInt(syncEntry.spendableBalance), decimals)}<br>` +
+                    `account nonce (txs made): ${Number(syncEntry.accountNonce)}`
             } else {
                 infoDiv.textContent = "(not synced yet)"
             }
@@ -434,14 +425,21 @@ async function connectPublicWallet() {
         throw new Error('No Ethereum wallet detected. Please install MetaMask.')
     }
 
-    const walletClient = createWalletClient({
+    const tempWalletClient = createWalletClient({
         chain: sepolia,
         transport: custom(window.ethereum!),
     })
 
     try {
-        await walletClient.switchChain({ id: sepolia.id })
-        const addresses = await walletClient.requestAddresses()
+        await tempWalletClient.switchChain({ id: sepolia.id })
+        const addresses = await tempWalletClient.requestAddresses()
+
+        // recreate with account set so BurnWallet can use it
+        const walletClient = createWalletClient({
+            account: addresses[0],
+            chain: sepolia,
+            transport: custom(window.ethereum!),
+        })
 
         //@ts-ignore
         window.publicAddress = addresses[0]
@@ -456,10 +454,14 @@ async function connectPublicWallet() {
 
         //@ts-ignore
         window.wormholeTokenWallet = wormholeTokenWallet
-        // background tree sync — uses stored tree as starting point so only new blocks are fetched
-        getSyncedMerkleTree({ wormholeToken: wormholeTokenWallet, publicClient, preSyncedTree: loadPreSyncedTree() ?? undefined })
-            .then(savePreSyncedTree)
-            .catch(e => console.warn("background tree sync failed", e))
+        // background tree sync — deferred to BurnWallet if connected
+        //@ts-ignore
+        const burnWallet = window.burnWallet as BurnWallet | undefined
+        if (burnWallet) {
+            burnWallet.syncTree(wormholeTokenAddress)
+                .then(() => saveBurnWallet(burnWallet))
+                .catch(e => console.warn("background tree sync failed", e))
+        }
         await updateWalletInfoUi(wormholeTokenWallet, addresses[0])
         return { address: addresses[0], publicWallet: walletClient }
     } catch (error) {
@@ -487,13 +489,18 @@ async function getPublicWallet() {
  * Creates all missing accounts in parallel with async PoW.
  * Progressively updates the UI as each account finishes.
  */
-async function ensurePageAccounts(page: number, privateWallet: BurnViewKeyManager, wormholeTokenWallet: WormholeToken, clearMsg = true) {
+async function ensurePageAccounts(page: number, burnWallet: BurnWallet, clearMsg = true) {
     const startIndex = page * BURN_ACCOUNTS_PER_PAGE
     const endIndex = startIndex + BURN_ACCOUNTS_PER_PAGE
     const decimals = Number(await wormholeToken.read.decimals())
     // figure out which indices need generating
     const indicesToGenerate: number[] = []
-    const allBurnAccounts = getDeterministicBurnAccounts(privateWallet)
+    let allBurnAccounts: BurnAccount[]
+    try {
+        allBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
+    } catch {
+        allBurnAccounts = []
+    }
     for (let i = startIndex; i < endIndex; i++) {
         if (!allBurnAccounts[i]) {
             indicesToGenerate.push(i)
@@ -509,16 +516,13 @@ async function ensurePageAccounts(page: number, privateWallet: BurnViewKeyManage
         `<br><br>` + POW_EXPLANATION_MSG + `<br><br>`
         , clearMsg, true)
     const perAccountPromises = indicesToGenerate.map((i) =>
-        privateWallet.createBurnAccount({ async: true, viewingKeyIndex: i })
-            .then((ba) =>
-                syncBurnAccount({ wormholeToken: wormholeTokenWallet, burnAccount: ba, archiveNode: publicClient })
-            )
-            .then((synced) => {
-                privateWallet.importBurnAccount(synced)
-                savePrivateWalletData(privateWallet)
+        burnWallet.createBurnAccount(wormholeTokenAddress, { async: true, viewingKeyIndex: i })
+            .then(async (ba) => {
+                await burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync: [ba.burnAddress] })
+                saveBurnWallet(burnWallet)
                 // re-render so this account replaces its placeholder
                 if (currentBurnPage === page) {
-                    const updatedBurnAccounts = getDeterministicBurnAccounts(privateWallet)
+                    const updatedBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
                     updateBurnAccountsListUi(updatedBurnAccounts, decimals)
                 }
             })
@@ -530,52 +534,44 @@ async function ensurePageAccounts(page: number, privateWallet: BurnViewKeyManage
 async function connectPrivateWallet() {
     const { publicWallet, publicAddress, wormholeTokenWallet } = await getPublicWallet()
 
-    //@ts-ignore
-    publicWallet.account = { address: publicAddress }
+    const chainId = await publicClient.getChainId()
 
-    const chainId = BigInt(await publicClient.getChainId())
-    const POW_DIFFICULTY = BigInt(await wormholeTokenWallet.read.POW_DIFFICULTY())
+    const burnWallet = new BurnWallet(publicWallet, {
+        archiveNodes: { [chainId]: publicClient },
+        acceptedChainIds: [chainId],
+    })
 
-    const storedData = loadPrivateWalletData(publicAddress)
-    let privateWallet: BurnViewKeyManager
+    const storedData = loadBurnWalletData()
+    await burnWallet.connect()
     if (storedData) {
-        logUi("restoring private wallet from local storage...", true)
-        privateWallet = new BurnViewKeyManager(publicWallet, POW_DIFFICULTY, { viewKeyData: storedData, acceptedChainIds: [chainId] })
-    } else {
-        privateWallet = new BurnViewKeyManager(publicWallet, POW_DIFFICULTY, { acceptedChainIds: [chainId] })
-        logUi("creating private wallet...\n please sign the message in your wallet", true)
-        await privateWallet.getDeterministicViewKeyRoot()
+        logUi("restoring private wallet from local storage...\n please sign the message in your wallet", true)
+        await burnWallet.importWallet(storedData, wormholeTokenAddress,{forceReSign:false})
     }
 
     //@ts-ignore
-    window.privateWallet = privateWallet
-    //@ts-ignore
-    window.burnAccount = null
+    window.burnWallet = burnWallet
 
     // generate first page of burn accounts in parallel (UI updates progressively)
     currentBurnPage = 0
-    await ensurePageAccounts(0, privateWallet, wormholeTokenWallet, false)
-    savePrivateWalletData(privateWallet)
+    await ensurePageAccounts(0, burnWallet, false)
+    saveBurnWallet(burnWallet)
 
     const decimals = Number(await wormholeToken.read.decimals())
-    updateBurnAccountsListUi(getDeterministicBurnAccounts(privateWallet), decimals)
+    const allBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
+    updateBurnAccountsListUi(allBurnAccounts, decimals)
 
-    //@ts-ignore
-    window.burnAccount = getDeterministicBurnAccounts(privateWallet)[0]
     logUi("done! created private wallet with burn addresses", false, true)
 }
 
 async function getPrivateWallet() {
     const { publicWallet, wormholeTokenWallet, publicAddress } = await getPublicWallet()
     //@ts-ignore
-    if (!window.privateWallet) {
+    if (!window.burnWallet) {
         await connectPrivateWallet()
     }
     //@ts-ignore
-    const privateWallet = window.privateWallet as BurnViewKeyManager
-    //@ts-ignore
-    const burnAccount = window.burnAccount
-    return { publicWallet, wormholeTokenWallet, publicAddress, privateWallet, burnAccount }
+    const burnWallet = window.burnWallet as BurnWallet
+    return { publicWallet, wormholeTokenWallet, publicAddress, burnWallet }
 }
 
 // --- handlers ---
@@ -589,39 +585,40 @@ async function mintBtnHandler() {
         errorUi("aaa that didn't work :( did you cancel it?", error)
     }
 
-    //@ts-ignore
-    await updateWalletInfoUi(wormholeTokenWallet, publicAddress, window.burnAccount)
+    await updateWalletInfoUi(wormholeTokenWallet, publicAddress)
 }
 
 async function prevBurnAccountsPageHandler() {
     if (currentBurnPage <= 0) return
     currentBurnPage -= 1
     //@ts-ignore
-    const privateWallet = window.privateWallet as BurnViewKeyManager | undefined
-    if (!privateWallet) return
+    const burnWallet = window.burnWallet as BurnWallet | undefined
+    if (!burnWallet) return
     const decimals = Number(await wormholeToken.read.decimals())
-    updateBurnAccountsListUi(getDeterministicBurnAccounts(privateWallet), decimals)
+    const allBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
+    updateBurnAccountsListUi(allBurnAccounts, decimals)
 }
 
 async function nextBurnAccountsPageHandler() {
-    const { privateWallet, wormholeTokenWallet } = await getPrivateWallet()
+    const { burnWallet } = await getPrivateWallet()
     currentBurnPage += 1
     try {
-        await ensurePageAccounts(currentBurnPage, privateWallet, wormholeTokenWallet)
+        await ensurePageAccounts(currentBurnPage, burnWallet)
     } catch (error) {
         currentBurnPage -= 1
         errorUi("failed to generate burn addresses for next page", error)
         return
     }
     const decimals = Number(await wormholeToken.read.decimals())
-    updateBurnAccountsListUi(getDeterministicBurnAccounts(privateWallet), decimals)
+    const allBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
+    updateBurnAccountsListUi(allBurnAccounts, decimals)
     logUi(`page ${currentBurnPage + 1} ready`, false, true)
 }
 
 function selectAllRemintHandler() {
     //@ts-ignore
-    const privateWallet = window.privateWallet as BurnViewKeyManager | undefined
-    if (!privateWallet) return
+    const burnWallet = window.burnWallet as BurnWallet | undefined
+    if (!burnWallet) return
 
     const checkboxes = Array.from(burnAccountsListEl!.querySelectorAll<HTMLInputElement>('input[name="remintBurnAddresses"]'))
     const allChecked = checkboxes.every((cb) => cb.checked)
@@ -657,18 +654,18 @@ async function transferBtnHandler() {
     }
 
     try {
-        const tx = await wormholeTokenWallet.write.transfer([to, amount], { chain: sepolia, account: publicAddress })
+        const estimatedGas = await wormholeTokenWallet.estimateGas.transfer([to, amount], { account: publicAddress })
+        const tx = await wormholeTokenWallet.write.transfer([to, amount], { chain: sepolia, account: publicAddress, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
         await txInUi(tx)
     } catch (error) {
         errorUi("Something wrong, did you cancel?", error)
     }
 
-    //@ts-ignore
-    await updateWalletInfoUi(wormholeTokenWallet, publicAddress, window.burnAccount)
+    await updateWalletInfoUi(wormholeTokenWallet, publicAddress)
 }
 
 async function burnBtnHandler() {
-    const { wormholeTokenWallet, publicAddress, privateWallet, burnAccount } = await getPrivateWallet()
+    const { wormholeTokenWallet, publicAddress, burnWallet } = await getPrivateWallet()
     const decimals = Number(await wormholeToken.read.decimals())
 
     const to = burnRecipientSelectEl.value as Address
@@ -685,28 +682,27 @@ async function burnBtnHandler() {
         return
     }
 
-    // superSafeBurn needs an UnsyncedBurnAccount with viewingKey, chainId, spendingPubKeyX etc.
-    // Verify the recipient matches a known burn account
-    const targetBurnAccount = getDeterministicBurnAccounts(privateWallet).find((b) => b.burnAddress === to)
+    // superSafeBurn needs a burn account — verify the recipient matches a known one
+    const allBurnAccounts = await getBurnAccounts(burnWallet, wormholeTokenAddress)
+    const targetBurnAccount = allBurnAccounts.find((b) => b.burnAddress === to)
     if (!targetBurnAccount) {
-        logUi("WARNING not a ")
+        logUi("WARNING: not a known burn address")
         return
     }
 
     logUi("running superSafeBurn checks and sending tx...", true)
     try {
-        const tx = await superSafeBurn(targetBurnAccount, amount, wormholeTokenWallet as WormholeTokenTest, privateWallet.privateData.ethAccount)
-        await txInUi(tx)
+        await burnWallet.superSafeBurn(wormholeTokenAddress, amount, targetBurnAccount)
+        logUi("burn tx sent!", true)
     } catch (error) {
         errorUi("safe burn failed", error)
     }
 
-    //@ts-ignore
-    await updateWalletInfoUi(wormholeTokenWallet, publicAddress, window.burnAccount)
+    await updateWalletInfoUi(wormholeTokenWallet, publicAddress)
 }
 
 async function proofPrivateTransferBtnHandler() {
-    const { wormholeTokenWallet, publicAddress, privateWallet, burnAccount } = await getPrivateWallet()
+    const { wormholeTokenWallet, publicAddress, burnWallet } = await getPrivateWallet()
     const decimals = Number(await wormholeToken.read.decimals())
 
     let recipient: Address
@@ -725,52 +721,56 @@ async function proofPrivateTransferBtnHandler() {
         return
     }
 
-    // Animated PoW loading indicator
-    let dotCount = 0;
-    const powInterval = setInterval(() => {
-        dotCount = (dotCount % 5) + 1;
-        logUi(
-            "creating proof..." + ".".repeat(dotCount) + "<br><br>" +
-            CREATING_PROOF_MSG
-            , true, true, false);
-    }, 500);
+    // get selected burn addresses from checkboxes
+    const selectedBurnAddresses = getSelectedRemintBurnAddresses()
+    if (selectedBurnAddresses.length === 0) {
+        errorUi("please select at least one burn address to spend from", new Error("no burn addresses selected"))
+        return
+    }
+
     try {
-        // get selected burn addresses from checkboxes
-        const selectedBurnAddresses = getSelectedRemintBurnAddresses()
-        if (selectedBurnAddresses.length === 0) {
-            clearInterval(powInterval)
-            errorUi("please select at least one burn address to spend from", new Error("no burn addresses selected"))
-            return
-        }
+        // 1. start tree sync asap
+        logUi("syncing merkle tree...", true, true, true)
+        const syncedTreePromise = burnWallet.syncTree(wormholeTokenAddress)
 
-        const chainId = BigInt(await publicClient.getChainId())
-        const relayInputsPromise = createRelayerInputs(
-            recipient,
-            amount,
-            privateWallet,
-            wormholeToken,
-            publicClient,
-            {
-                chainId,
-                burnAddresses: selectedBurnAddresses,
-                preSyncedTree: loadPreSyncedTree() ?? undefined,
-            })
+        // 2. sync burn accounts
+        logUi("syncing burn accounts..." + `<br>` + BURN_ACCOUNT_SYNCING_MSG, true, true, true)
+        await burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync: selectedBurnAddresses })
 
-        const { relayInputs: relayerInputs, syncedData: { syncedPrivateWallet, syncedTree } } = await relayInputsPromise
-        addRelayInputsToLocalStorage(relayerInputs)
-        savePreSyncedTree(syncedTree)
-        //@ts-ignore
-        window.burnAccount = syncedPrivateWallet.getDeterministicBurnAccounts()[0]
-        //@ts-ignore
-        window.merkleTree = syncedTree
+        // 3. select burn accounts for spend
+        logUi("selecting burn accounts for spend...", true, true, true)
+        const selection = await burnWallet.selectBurnAccountsForSpend(wormholeTokenAddress, amount, {
+            burnAddresses: selectedBurnAddresses,
+        })
+
+        // 4. sign
+        logUi("signing transaction... please sign in your wallet", true, true, true)
+        const signed = await burnWallet.signReMint(recipient, selection)
+
+        // 5. wait for tree sync
+        logUi("waiting for tree sync to finish...", true, true, true)
+        const syncedTree = await syncedTreePromise
+
+        // 6. generate proof (animated)
+        let dotCount = 0;
+        const proofInterval = setInterval(() => {
+            dotCount = (dotCount % 5) + 1;
+            logUi(
+                "generating zero-knowledge proof" + ".".repeat(dotCount) + "<br><br>" +
+                CREATING_PROOF_MSG
+                , true, true, false);
+        }, 500);
+
+        const selfRelayInputs = await burnWallet.proof(signed, { syncedTree })
+        clearInterval(proofInterval)
+
+        addRelayInputsToLocalStorage(selfRelayInputs)
+        saveBurnWallet(burnWallet)
     } catch (error) {
         errorUi("proof creation failed", error)
     }
-    clearInterval(powInterval);
     logUi("proof done! saved to pending relay txs")
-    //@ts-ignore
-    const syncedBurnAccount = window.burnAccount as SyncedBurnAccountNonDet
-    await updateWalletInfoUi(wormholeTokenWallet, publicAddress, syncedBurnAccount as SyncedBurnAccountNonDet)
+    await updateWalletInfoUi(wormholeTokenWallet, publicAddress)
     await listPendingRelayTxs()
 }
 
@@ -780,19 +780,20 @@ async function listPendingRelayTxs() {
     const decimals = Number(await wormholeToken.read.decimals())
     for (const relayInput of relayInputs) {
         const relayFunc = async () => {
-            const { publicWallet, publicAddress, wormholeTokenWallet } = await getPublicWallet()
+            const { publicAddress, wormholeTokenWallet } = await getPublicWallet()
             //@ts-ignore
-            publicWallet.account = { address: publicAddress }
+            const burnWallet = window.burnWallet as BurnWallet | undefined
             try {
-                const tx = await selfRelayTx(
-                    relayInput,
-                    publicWallet,
-                    wormholeTokenWallet as WormholeTokenTest
-                )
+                let tx: Hex
+                if (burnWallet) {
+                    tx = await burnWallet.selfRelayTx(relayInput)
+                } else {
+                    // fallback: import selfRelayTx would be needed, but BurnWallet should always exist here
+                    throw new Error("connect private wallet first")
+                }
                 await txInUi(tx)
                 await listPendingRelayTxs()
-                //@ts-ignore
-                await updateWalletInfoUi(wormholeTokenWallet, publicAddress, window.burnAccount)
+                await updateWalletInfoUi(wormholeTokenWallet, publicAddress)
             } catch (error) {
                 errorUi("relay failed", error)
             }
@@ -831,9 +832,7 @@ async function loadTokenHandler() {
 
   // reset private wallet state
   //@ts-ignore
-  window.privateWallet = undefined
-  //@ts-ignore
-  window.burnAccount = undefined
+  window.burnWallet = undefined
   selectedRemintAddresses.clear()
   selectionInitialized = false
   currentBurnPage = 0
@@ -854,7 +853,7 @@ async function loadTokenHandler() {
     //@ts-ignore
     window.wormholeTokenWallet = wormholeTokenWallet
     //@ts-ignore
-    await updateWalletInfoUi(wormholeTokenWallet, window.publicAddress)
+    await updateWalletInfoUi(wormholeTokenWallet, window.publicAddress as Address)
   }
 
   try {

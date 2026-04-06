@@ -64,6 +64,23 @@ export class BurnWallet {
         )
     }
 
+    async getBurnAccounts(
+        tokenAddress: Address,
+        { ethSigner, chainId, difficulty, type = "derived" }:
+            { ethSigner?: Address, chainId?: Hex, difficulty?: Hex, type?: "derived" | "unknown" } = {}
+    ): Promise<BurnAccount[]> {
+        ethSigner ??= await this.defaultSigner()
+        chainId ??= toHex(await this.viemWallet.getChainId())
+        const contractConfig = await this.getContractConfig(tokenAddress)
+        difficulty = difficulty ? padHex(difficulty, { size: 32 }) : padHex(contractConfig.POW_DIFFICULTY, { size: 32 })
+        const burnAccounts = this.burnViewKeyManager.privateData.burnAccounts[ethSigner as string].burnAccounts[chainId as string][difficulty as string]
+        if (type === "unknown") {
+            return Object.values(burnAccounts.unknownBurnAccounts)
+        } else {
+            return burnAccounts.derivedBurnAccounts
+        }
+    }
+
     // you should do this on every accountChanged event other wise BurnWallet.defaultSigner will cause "connect account" popup
     // this is because some wallets return the current selected account with (await this.viemWallet.getAddresses())[0]
     // but some don't. So defaultSigner detects that by doing this.viemWallet.account?.address !== (await this.viemWallet.getAddresses())[0]
@@ -91,9 +108,11 @@ export class BurnWallet {
         chainId ??= await this.viemWallet.getChainId()
         const chainIdHex = toHex(chainId)
         this.merkleTrees[chainIdHex] ??= {}
-        // TODO firstSyncedBlock at 0 might give issues
-        console.warn("firstSyncedBlock is set at 0, this might cause issues?? TODO")
-        this.merkleTrees[chainIdHex][address] ??= { firstSyncedBlock: 0n, lastSyncedBlock: 0n, tree: new LeanIMT(poseidon2IMTHashFunc) }
+        if (this.merkleTrees[chainIdHex][address] === undefined) {
+            const contractConfig = await this.#getContractConfig(address, chainId)
+            const deploymentBlock = contractConfig.DEPLOYMENT_BLOCK
+            this.merkleTrees[chainIdHex][address] = { firstSyncedBlock: deploymentBlock, lastSyncedBlock: deploymentBlock, tree: new LeanIMT(poseidon2IMTHashFunc) }
+        }
         return this.merkleTrees[chainIdHex][address]
     }
 
@@ -137,6 +156,7 @@ export class BurnWallet {
             const maxTreeDepth = wormholeTokenFull.read.MAX_TREE_DEPTH();
             const isCrossChain = wormholeTokenFull.read.IS_CROSS_CHAIN()
             const decimalsTokenPrice = wormholeTokenFull.read.decimalsTokenPrice()
+            const deploymentBlock = wormholeTokenFull.read.DEPLOYMENT_BLOCK()
 
             const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull);
             const acceptedChainIds = getAcceptedChainIdFromContract(wormholeTokenFull)
@@ -153,7 +173,8 @@ export class BurnWallet {
                 ACCEPTED_CHAIN_IDS: (await acceptedChainIds).map((id) => toHex(id)),
                 EIP712_NAME: (await eip712Domain)[1],
                 EIP712_VERSION: (await eip712Domain)[2],
-                decimalsTokenPrice: toHex(await decimalsTokenPrice)
+                decimalsTokenPrice: toHex(await decimalsTokenPrice),
+                DEPLOYMENT_BLOCK: await deploymentBlock
             }
             this.contractConfig[chainIdHex][address] = config;
         }
@@ -326,8 +347,13 @@ export class BurnWallet {
     async importWallet(
         json: string,
         tokenAddress: Address,
-        { merkleTrees = true, viewKeyData = true, forceReSign = true, forcePow = false, chainId }: { forceReSign?: boolean, forcePow?: boolean, merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number } = {}
+        { merkleTrees = true, onlyImportSigner = false, viewKeyData = true, forceReHashViewKey = true, forceReSign = false, forcePow = false, chainId, onlySignInWith }: {onlyImportSigner?:boolean, forceReHashViewKey?: boolean, forceReSign?: boolean, forcePow?: boolean, merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number, onlySignInWith?: Address } = {}
     ) {
+        if(onlyImportSigner && onlySignInWith ){ throw new Error(`please set onlyImportSigner:false when specifying onlySignInWith,  ex: BurnWaller.importWallet(json, ${tokenAddress}, {onlyImportSigner:false, onlySignInWith:[${onlySignInWith.toString()}]), ...yourOtherOptions}`)}
+        if (onlyImportSigner) {
+            onlySignInWith = await this.defaultSigner();
+        }
+        console.log({onlySignInWith, onlyImportSigner})
         const parsed = JSON.parse(json) as { merkleTrees: ExportedMerkleTrees, privateData: ExportedViewKeyData }
         const archiveNode = await this.#getPublicClient({ type: "archive", chainId })
         const fullNode = await this.#getPublicClient({ type: "full", chainId })
@@ -337,7 +363,7 @@ export class BurnWallet {
         }
 
         if (parsed.privateData && viewKeyData) {
-            await this.burnViewKeyManager.importViewKeyWalletData(parsed.privateData, tokenAddress, archiveNode, { fullNode, forceReSign, forcePow })
+            await this.burnViewKeyManager.importViewKeyWalletData(parsed.privateData, tokenAddress, archiveNode, { fullNode, forceReSign, forceReHashViewKey, forcePow, onlySignInWith })
         }
     }
 
@@ -370,7 +396,7 @@ export class BurnWallet {
             this.syncTree(tokenAddress, { chainId, deploymentBlock, blocksPerGetLogsReq }),
             this.syncBurnAccounts(tokenAddress, { chainId, burnAddressesToSync, signingEthAccount, maxNonce })
         ])
-        return {syncedTree, syncedBurnAccounts}
+        return { syncedTree, syncedBurnAccounts }
     }
 
     async syncTree(tokenAddress: Address, { chainId, deploymentBlock, blocksPerGetLogsReq }: { chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}) {
