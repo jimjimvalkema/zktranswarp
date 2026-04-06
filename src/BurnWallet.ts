@@ -15,6 +15,13 @@ import { createRelayerInputs, hashAndProof, selectBurnAccountsForClaim, selectSm
 import { getAcceptedChainIdFromContract, getAllBurnAccounts, getCircuitSize, getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
+export const viemAccountNotSetErr = `viem wallet not created with account set. pls do: 
+            const wallet = createWalletClient({
+                account, // <-- this sets viemWallet.account
+                chain: mainnet,
+                transport: custom(window.ethereum),
+            });
+            `
 
 export class BurnWallet {
     readonly burnViewKeyManager: BurnViewKeyManager
@@ -42,15 +49,8 @@ export class BurnWallet {
         { archiveNodes, fullNodes, merkleTrees, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId }:
             { archiveNodes?: ClientPerChainId, fullNodes?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, walletDataImport?: string, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number } = {}
     ) {
-        if (viemWallet.account === undefined) {
-            throw new Error(`viem wallet not created with account set. pls do: 
-            const wallet = createWalletClient({
-                account, // <-- this sets viemWallet.account
-                chain: mainnet,
-                transport: custom(window.ethereum),
-            });
-            `)
-        }
+        if (viemWallet.account === undefined) throw new Error(viemAccountNotSetErr)
+    
         this.viemWallet = viemWallet;
         this.archiveNodes = archiveNodes ?? fullNodes ?? {};
         this.fullNodes = fullNodes ?? archiveNodes ?? {};
@@ -157,6 +157,9 @@ export class BurnWallet {
             const isCrossChain = wormholeTokenFull.read.IS_CROSS_CHAIN()
             const decimalsTokenPrice = wormholeTokenFull.read.decimalsTokenPrice()
             const deploymentBlock = wormholeTokenFull.read.DEPLOYMENT_BLOCK()
+            const tokenDecimals = wormholeTokenFull.read.decimals()
+            const tokenName = wormholeTokenFull.read.name()
+            const tokenSymbol = wormholeTokenFull.read.symbol()
 
             const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull);
             const acceptedChainIds = getAcceptedChainIdFromContract(wormholeTokenFull)
@@ -174,7 +177,11 @@ export class BurnWallet {
                 EIP712_NAME: (await eip712Domain)[1],
                 EIP712_VERSION: (await eip712Domain)[2],
                 decimalsTokenPrice: toHex(await decimalsTokenPrice),
-                DEPLOYMENT_BLOCK: await deploymentBlock
+                DEPLOYMENT_BLOCK: await deploymentBlock,
+                tokenDecimals:await tokenDecimals,
+                tokenName:await tokenName,
+                tokenSymbol:await tokenSymbol
+
             }
             this.contractConfig[chainIdHex][address] = config;
         }
@@ -218,9 +225,11 @@ export class BurnWallet {
         return contract as WormholeToken
     }
 
-    async connect(ethAccount?: Address) {
-        ethAccount ??= await this.defaultSigner()
-        return await this.burnViewKeyManager.connect(ethAccount)
+    async connect(walletClient?: WalletClient) {
+        walletClient ??= this.viemWallet
+        if (walletClient.account === undefined) throw new Error(viemAccountNotSetErr)
+        this.viemWallet = walletClient
+        return await this.burnViewKeyManager.connect(walletClient)
     }
 
 

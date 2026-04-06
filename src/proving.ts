@@ -668,6 +668,7 @@ export async function generateProof(proofInputs: ProofInputs, circuitSizes: numb
     console.log("generating proof")
     const start = Date.now()
     const proof = await backend.generateProof(witness, { keccakZK: true });
+    
     console.log(`finished proving. It took ${Date.now() - start}ms`)
     return proof
 }

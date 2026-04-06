@@ -172,7 +172,7 @@ export interface RelayInputs {
     signatureInputs: SignatureInputsWithFee,
 }
 
-export type BurnAccountSelector = (spendableBurnAccounts: SpendableBurnAccount[], amount: bigint, largestCircuitSize: number, tokenAddress: Address)=> SpendableBurnAccount[]
+export type BurnAccountSelector = (spendableBurnAccounts: SpendableBurnAccount[], amount: bigint, largestCircuitSize: number, tokenAddress: Address) => SpendableBurnAccount[]
 
 export interface BurnAccountSelectionForSpend {
     tokenAddress: Address,
@@ -190,7 +190,7 @@ export interface SignedProofInputs {
 export type BackendPerSize = { [key: number]: UltraHonkBackend }
 //functions
 export type CreateRelayerInputsOpts = {
-    burnAccountSelector?:BurnAccountSelector
+    burnAccountSelector?: BurnAccountSelector
     fullNode?: PublicClient
     threads?: number;
     callData?: Hex;
@@ -242,7 +242,10 @@ export interface WormholeContractConfig {
     EIP712_NAME: string,
     EIP712_VERSION: string,
     decimalsTokenPrice: Hex,
-    DEPLOYMENT_BLOCK: bigint
+    DEPLOYMENT_BLOCK: bigint,
+    tokenDecimals: number,
+    tokenName: string,
+    tokenSymbol: string,
 }
 
 export type SpendableBurnAccount = { burnAccount: SyncedBurnAccount, chainId: Hex, contract: Address, amount: bigint } 

@@ -9,6 +9,7 @@ import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministi
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
 import { BurnAccountSyncFieldsSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
+import { viemAccountNotSetErr } from "./BurnWallet.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 /**
@@ -76,7 +77,7 @@ export class BurnViewKeyManager {
     // prompts user to sign to create viewing keys and also store pubKey of eth account
     async #connect(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE) {
         this.privateData.burnAccounts[ethAccount] ??= {detViewKeyRoot:undefined, pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {} };
-        if (this.privateData.burnAccounts[ethAccount].pubKey !== undefined && this.privateData.burnAccounts[ethAccount].detViewKeyRoot !== undefined) {
+        if (this.privateData.burnAccounts[ethAccount].pubKey && this.privateData.burnAccounts[ethAccount].detViewKeyRoot) {
             return { viewKeyRoot: this.privateData.burnAccounts[ethAccount].detViewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount].pubKey }
         } else {
             const signature = await this.viemWallet.signMessage({ message: message, account: ethAccount })
@@ -131,8 +132,11 @@ export class BurnViewKeyManager {
     }
 
     // prompts user to sign to create viewing keys and also store pubKey of eth account
-    async connect(ethAccount: Address) {
-        return await this.#connect(ethAccount)
+    async connect(walletClient?: WalletClient) {
+        walletClient ??= this.viemWallet
+        this.viemWallet = walletClient
+        if (walletClient.account === undefined) throw new Error(viemAccountNotSetErr)
+        return await this.#connect(walletClient.account.address as Address)
     }
 
     /**
