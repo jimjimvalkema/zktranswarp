@@ -3,7 +3,7 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { createPublicClient, custom, getAddress, getContract, padHex, toHex } from "viem";
 import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, WormholeToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, WormholeContractConfig, FeeDataOptionals, SpendableBurnAccount, BackendPerSize, BurnAccountSelector, SignatureInputs, SignatureData, BurnAccountSelectionForSpend, SignedProofInputs } from "./types.ts"
-import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, RE_MINT_RELAYER_GAS, RE_MINT_RELAYER_GAS_DEFAULT_L1, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
+import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, RE_MINT_RELAYER_GAS, RE_MINT_RELAYER_GAS_DEFAULT_L1, SLOWEST_PROOF_PADDING, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { LeanIMT } from "@zk-kit/lean-imt";
 import { getSyncedMerkleTree, poseidon2IMTHashFunc, syncMultipleBurnAccounts } from "./syncing.ts";
@@ -12,7 +12,7 @@ import { burn, relayTx, selfRelayTx, superSafeBurn } from "./transact.ts";
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.ts"
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import { createRelayerInputs, hashAndProof, selectBurnAccountsForClaim, selectSmallFirst, signAndEncrypt } from "./proving.ts";
-import { getAcceptedChainIdFromContract, getAllBurnAccounts, getCircuitSize, getCircuitSizesFromContract, getWormholeTokenContract } from "./utils.ts";
+import { getAcceptedChainIdFromContract, getAllBurnAccounts, getCircuitSize, getCircuitSizesFromContract, getContractConfig, getWormholeTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 export const viemAccountNotSetErr = `viem wallet not created with account set. pls do: 
@@ -29,7 +29,7 @@ export class BurnWallet {
     readonly archiveNodes: ClientPerChainId;
     readonly fullNodes: ClientPerChainId
     readonly contractConfig: { [chainId: Hex]: { [Address: Address]: WormholeContractConfig } } = {};
-    merkleTrees: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } } = {};
+    readonly merkleTrees: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } } = {};
 
     /**
      * @notice if a user switches their chain, archiveNode and fullNode wont switch with it
@@ -46,16 +46,17 @@ export class BurnWallet {
      */
     constructor(
         viemWallet: WalletClient,
-        { archiveNodes, fullNodes, merkleTrees, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId }:
-            { archiveNodes?: ClientPerChainId, fullNodes?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, walletDataImport?: string, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number } = {}
+        { archiveNodes, fullNodes, merkleTrees, contractConfigs, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId }:
+            { archiveNodes?: ClientPerChainId, fullNodes?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, contractConfigs?: { [chainId: Hex]: { [Address: Address]: WormholeContractConfig } }, walletDataImport?: string, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number } = {}
     ) {
         if (viemWallet.account === undefined) throw new Error(viemAccountNotSetErr)
-    
+
         this.viemWallet = viemWallet;
         this.archiveNodes = archiveNodes ?? fullNodes ?? {};
         this.fullNodes = fullNodes ?? archiveNodes ?? {};
         // TODO firstSyncedBlock;0n might create issues since it should be the deployment block of the contract
-        this.merkleTrees = merkleTrees ?? this.merkleTrees
+        this.merkleTrees = merkleTrees ?? {}
+        this.contractConfig = contractConfigs ?? {}
         this.burnViewKeyManager = new BurnViewKeyManager(
             viemWallet,
             {
@@ -149,41 +150,11 @@ export class BurnWallet {
         chainId ??= await this.viemWallet.getChainId()
         const chainIdHex = toHex(chainId)
         this.contractConfig[chainIdHex] ??= {}
-        const wormholeTokenFull = await this.#getTokenContract(address, { chainId, wallet: false, nodeType: "full" })
         if (this.contractConfig[chainIdHex][address] === undefined) {
-            const powDifficulty = wormholeTokenFull.read.POW_DIFFICULTY()
-            const reMintLimit = wormholeTokenFull.read.RE_MINT_LIMIT();
-            const maxTreeDepth = wormholeTokenFull.read.MAX_TREE_DEPTH();
-            const isCrossChain = wormholeTokenFull.read.IS_CROSS_CHAIN()
-            const decimalsTokenPrice = wormholeTokenFull.read.decimalsTokenPrice()
-            const deploymentBlock = wormholeTokenFull.read.DEPLOYMENT_BLOCK()
-            const tokenDecimals = wormholeTokenFull.read.decimals()
-            const tokenName = wormholeTokenFull.read.name()
-            const tokenSymbol = wormholeTokenFull.read.symbol()
-
-            const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull);
-            const acceptedChainIds = getAcceptedChainIdFromContract(wormholeTokenFull)
-            const eip712Domain = wormholeTokenFull.read.eip712Domain()
-            const verifiersEntries = Promise.all((await verifierSizes).map(async (size, index) => [size, await wormholeTokenFull.read.VERIFIERS_PER_SIZE([size])]))
-
-            const config: WormholeContractConfig = {
-                VERIFIER_SIZES: await verifierSizes,
-                VERIFIERS_PER_SIZE: Object.fromEntries(await verifiersEntries),
-                POW_DIFFICULTY: padHex(await powDifficulty, { size: 32 }),
-                RE_MINT_LIMIT: await reMintLimit,
-                MAX_TREE_DEPTH: await maxTreeDepth,
-                IS_CROSS_CHAIN: await isCrossChain,
-                ACCEPTED_CHAIN_IDS: (await acceptedChainIds).map((id) => toHex(id)),
-                EIP712_NAME: (await eip712Domain)[1],
-                EIP712_VERSION: (await eip712Domain)[2],
-                decimalsTokenPrice: toHex(await decimalsTokenPrice),
-                DEPLOYMENT_BLOCK: await deploymentBlock,
-                tokenDecimals:await tokenDecimals,
-                tokenName:await tokenName,
-                tokenSymbol:await tokenSymbol
-
-            }
-            this.contractConfig[chainIdHex][address] = config;
+            this.contractConfig[chainIdHex][address] = await getContractConfig(
+                address,
+                await this.#getPublicClient({ type: "full", chainId: chainId })
+            );
         }
         return this.contractConfig[chainIdHex][address]
     }
@@ -230,6 +201,13 @@ export class BurnWallet {
         if (walletClient.account === undefined) throw new Error(viemAccountNotSetErr)
         this.viemWallet = walletClient
         return await this.burnViewKeyManager.connect(walletClient)
+    }
+
+    async connectPreSigned(signature: Hex, message: string, walletClient?: WalletClient) {
+        walletClient ??= this.viemWallet
+        if (walletClient.account === undefined) throw new Error(viemAccountNotSetErr)
+        this.viemWallet = walletClient
+        this.burnViewKeyManager.connectPreSigned(walletClient, signature, message)
     }
 
 
@@ -356,13 +334,13 @@ export class BurnWallet {
     async importWallet(
         json: string,
         tokenAddress: Address,
-        { merkleTrees = true, onlyImportSigner = false, viewKeyData = true, forceReHashViewKey = true, forceReSign = false, forcePow = false, chainId, onlySignInWith }: {onlyImportSigner?:boolean, forceReHashViewKey?: boolean, forceReSign?: boolean, forcePow?: boolean, merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number, onlySignInWith?: Address } = {}
+        { merkleTrees = true, onlyImportSigner = false, viewKeyData = true, forceReHashViewKey = true, forceReSign = false, forcePow = false, chainId, onlySignInWith }: { onlyImportSigner?: boolean, forceReHashViewKey?: boolean, forceReSign?: boolean, forcePow?: boolean, merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number, onlySignInWith?: Address } = {}
     ) {
-        if(onlyImportSigner && onlySignInWith ){ throw new Error(`please set onlyImportSigner:false when specifying onlySignInWith,  ex: BurnWaller.importWallet(json, ${tokenAddress}, {onlyImportSigner:false, onlySignInWith:[${onlySignInWith.toString()}]), ...yourOtherOptions}`)}
+        if (onlyImportSigner && onlySignInWith) { throw new Error(`please set onlyImportSigner:false when specifying onlySignInWith,  ex: BurnWaller.importWallet(json, ${tokenAddress}, {onlyImportSigner:false, onlySignInWith:[${onlySignInWith.toString()}]), ...yourOtherOptions}`) }
         if (onlyImportSigner) {
             onlySignInWith = await this.defaultSigner();
         }
-        console.log({onlySignInWith, onlyImportSigner})
+        console.log({ onlySignInWith, onlyImportSigner })
         const parsed = JSON.parse(json) as { merkleTrees: ExportedMerkleTrees, privateData: ExportedViewKeyData }
         const archiveNode = await this.#getPublicClient({ type: "archive", chainId })
         const fullNode = await this.#getPublicClient({ type: "full", chainId })
@@ -409,6 +387,7 @@ export class BurnWallet {
     }
 
     async syncTree(tokenAddress: Address, { chainId, deploymentBlock, blocksPerGetLogsReq }: { chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}) {
+        console.log("starting tree sync")
         chainId ??= await this.viemWallet.getChainId()
         const [archiveNode, fullNode, preSyncedTree] = await Promise.all([
             this.#getPublicClient({ type: "archive", chainId }),
@@ -417,6 +396,7 @@ export class BurnWallet {
         ])
         const syncedTree = await getSyncedMerkleTree(tokenAddress, archiveNode, { fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq })
         this.#setMerkleTree(syncedTree, tokenAddress, chainId)
+        console.log("completed tree sync")
         return syncedTree
     }
 
@@ -430,6 +410,29 @@ export class BurnWallet {
         return await syncMultipleBurnAccounts(this.burnViewKeyManager, tokenAddress, archiveNode, { fullNode, burnAddressesToSync, maxNonce, ethAccounts: [signingEthAccount], chainId: toHex(chainId) })
     }
 
+    /**
+     * @TODO research how much data the timing of the root reveals as public input
+     * proof time is faster usually then one block so it seems limited. And the root only updates on transfers and reMints
+     * Patching it would mean you would always proof against a slightly stale root.
+     * This has some challenges like rolling back then PreSyncedMerkleTree to a root that existed at or before a specific timestamp
+     * But the hardest problem is un-syncing the burn accounts. You would have to go back to timestamp of that root (*not* the targeted timestamp,
+     * but the timestamp of the root since that contains the state).
+     * Going back to that timestamp would require you to scan for events until then en deducted that from the BurnedBalance. 
+     * But if a nullifier happened then you would just have to wait until it lines up. Or ignore that account?
+     * 
+     * maybe just adding a couple seconds of sleep is easier and good enough.
+     * 
+     * maybe it's not just privacy but also bug. 
+     * technically during account sync one account can receive tokens but then the merkle tree does not have that update.
+     * Since accountSync syncs by reading contract state, thus every lookup is at latest block. So one read can happen on block n and another on n+1
+     * But the tree is correctly synced till exactly block x. 
+     * 
+     * 
+     * @param tokenAddress 
+     * @param amount 
+     * @param param2 
+     * @returns 
+     */
     async selectBurnAccountsForSpend(
         tokenAddress: Address, amount: bigint,
         { chainId, signingEthAccount, burnAccountSelector = selectSmallFirst, circuitSize, burnAddresses }:

@@ -2,13 +2,15 @@ import { createPublicClient, createWalletClient, custom, formatUnits, getAddress
 import type { Address, Hex, WalletClient } from 'viem'
 import { sepolia } from 'viem/chains'
 import 'viem/window';
-import type { WormholeToken, SelfRelayInputs, BurnAccount } from '../src/types.js';
+import type { WormholeToken, SelfRelayInputs, BurnAccount, WormholeContractConfig } from '../src/types.js';
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import sepoliaDeployments from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
 
 import * as viem from 'viem'
 import { ADDED_BITS_SECURITY, GAS_ESTIMATE_BUFFER_PERCENT, POW_BITS } from '../src/constants.ts';
 import { BurnWallet } from '../src/BurnWallet.ts';
+import { getContractConfig } from '../src/utils.ts';
+import { selfRelayTx } from '../src/transact.ts';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const BURN_WALLET_LS_VERSION = 1;
 
@@ -93,7 +95,10 @@ const publicClient = createPublicClient({
 
 let wormholeToken = getContract({ abi: WormholeTokenArtifact.abi, address: wormholeTokenAddress, client: { public: publicClient } }) as unknown as WormholeToken
 tokenAddressInputEl.value = wormholeTokenAddress
-setNonWalletInfo(wormholeToken)
+const contractConfig = await getContractConfig(wormholeTokenAddress, publicClient)
+//@ts-ignore
+window.contractConfig = contractConfig
+setNonWalletInfo(contractConfig)
 
 // --- helpers ---
 
@@ -199,11 +204,11 @@ function loadBurnWalletData(): string | null {
 
 // ---
 
-async function setNonWalletInfo(wormholeToken: WormholeToken) {
-    const amountFreeTokens = wormholeToken.read.amountFreeTokens()
-    const name = wormholeToken.read.name()
-    const ticker = wormholeToken.read.symbol()
-    const decimals = wormholeToken.read.decimals()
+async function setNonWalletInfo(contractConfig: WormholeContractConfig) {
+    const amountFreeTokens = contractConfig.amountFreeTokens
+    const name = contractConfig.tokenName
+    const ticker = contractConfig.tokenSymbol
+    const decimals = contractConfig.tokenDecimals
     const formatAmountFreeTokens = formatUnits(await amountFreeTokens, Number(await decimals))
     everyClass(".amountFreeTokens", (el) => { el.innerText = formatAmountFreeTokens })
     everyClass(".ticker", async (el) => el.innerText = await ticker)
@@ -365,9 +370,14 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
                 updateTotalSelectedSpendable()
             })
 
+            const chainId = toHex(sepolia.id)
+            const syncEntry = ('syncData' in burnAccount && burnAccount.syncData)
+                ? burnAccount.syncData[chainId]?.[wormholeTokenAddress]
+                : undefined
+
             const cbLabel = document.createElement("label")
             cbLabel.htmlFor = cb.id
-            cbLabel.textContent = ` #${i}: ${short} `
+            cbLabel.innerHTML = ` #${i}: ${short} <br> Spendable: ${formatUnits(BigInt(syncEntry ? syncEntry.spendableBalance : 0), decimals)} `
 
             // --- show info toggle ---
             const infoDiv = document.createElement("div")
@@ -376,10 +386,6 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
             const isExpanded = expandedInfoIndices.has(i)
             infoDiv.style.display = isExpanded ? "block" : "none"
 
-            const chainId = toHex(sepolia.id)
-            const syncEntry = ('syncData' in burnAccount && burnAccount.syncData)
-                ? burnAccount.syncData[chainId]?.[wormholeTokenAddress]
-                : undefined
             if (syncEntry) {
                 infoDiv.innerHTML =
                     `burn address: ${burnAccount.burnAddress}<br>` +
@@ -470,7 +476,7 @@ async function connectPublicWallet() {
         //@ts-ignore
         window.wormholeTokenWallet = wormholeTokenWallet
         // tree sync is handled by connectBurnWallet / getBurnWallet, not here
-        await updateWalletInfoUi(wormholeTokenWallet, addresses[0])
+        updateWalletInfoUi(wormholeTokenWallet, addresses[0])
         return { address: addresses[0], publicWallet: walletClient }
     } catch (error) {
         errorUi("wallet connection failed. try installing metamask?", error)
@@ -547,6 +553,8 @@ async function connectBurnWallet() {
     const burnWallet = new BurnWallet(publicWallet, {
         archiveNodes: { [chainId]: publicClient },
         acceptedChainIds: [chainId],
+        //@ts-ignore
+        contractConfigs: { [chainId]: window.contractConfig }
     })
 
     const storedData = loadBurnWalletData()
@@ -846,16 +854,18 @@ async function listPendingRelayTxs() {
     const decimals = Number(await wormholeToken.read.decimals())
     for (const relayInput of relayInputs) {
         const relayFunc = async () => {
-            const { publicAddress, wormholeTokenWallet } = await getPublicWallet()
+            const { publicAddress, wormholeTokenWallet, publicWallet } = await getPublicWallet()
             //@ts-ignore
             const burnWallet = window.burnWallet as BurnWallet | undefined
             try {
                 let tx: Hex
-                if (burnWallet) {
-                    tx = await burnWallet.selfRelayTx(relayInput)
+                if (publicWallet) {
+                    tx = await selfRelayTx(relayInput, publicWallet)
+                    // is nice but i dont want to force signin and PoW just to relay a tx
+                    //tx = await burnWallet.selfRelayTx(relayInput)
                 } else {
                     // fallback: import selfRelayTx would be needed, but BurnWallet should always exist here
-                    throw new Error("connect private wallet first")
+                    throw new Error("connect wallet first")
                 }
                 await txInUi(tx)
                 await listPendingRelayTxs()
@@ -895,7 +905,6 @@ async function loadTokenHandler() {
 
     // recreate read-only contract
     wormholeToken = getContract({ abi: WormholeTokenArtifact.abi, address: wormholeTokenAddress, client: { public: publicClient } }) as unknown as WormholeToken
-
     // reset private wallet state
     //@ts-ignore
     window.burnWallet = undefined
@@ -923,7 +932,11 @@ async function loadTokenHandler() {
     }
 
     try {
-        await setNonWalletInfo(wormholeToken)
+        const contractConfig = await getContractConfig(wormholeTokenAddress, publicClient)
+        //@ts-ignore
+        window.contractConfig = contractConfig
+        //@ts-ignore
+        await setNonWalletInfo(window.contractConfig)
         tokenLoadStatusEl!.textContent = "loaded!"
         setTimeout(() => { tokenLoadStatusEl!.textContent = "" }, 2000)
     } catch (error) {

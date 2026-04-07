@@ -246,6 +246,7 @@ export interface WormholeContractConfig {
     tokenDecimals: number,
     tokenName: string,
     tokenSymbol: string,
+    amountFreeTokens: bigint
 }
 
 export type SpendableBurnAccount = { burnAccount: SyncedBurnAccount, chainId: Hex, contract: Address, amount: bigint } 

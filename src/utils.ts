@@ -4,12 +4,14 @@ import type {
     AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable,
     DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, FullViewKeyData, UnknownBurnAccount, ExportedViewKeyData,
     BurnAccountRecoverable,
+    WormholeContractConfig,
 } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
-import { FIELD_MODULUS } from "./constants.ts";
+import { FIELD_MODULUS, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema, type BurnAccountStorage } from "./schemas.ts";
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.js"
+import { viemAccountNotSetErr } from "./BurnWallet.ts";
 export const wormholeTokenAbi = WormholeTokenArtifact.abi as WormholeToken$Type["abi"]
 export function padWithRandomHex({ arr, len, hexSize, dir }: { arr: Hex[], len: number, hexSize: number, dir: 'left' | 'right' }): Hex[] {
     const padding = Array.from({ length: len - arr.length }, () =>
@@ -158,14 +160,14 @@ export function getDeterministicBurnAccounts(
 //     const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount).filter(async (b) => await wormholeToken.read.balanceOf([b.burnAddress]) === 0n)
 // }
 
-export async function getCircuitSizesFromContract(wormholeToken: WormholeToken):Promise<number[]> {
+export async function getCircuitSizesFromContract(wormholeToken: WormholeToken): Promise<number[]> {
     const AMOUNT_OF_VERIFIERS = await wormholeToken.read.AMOUNT_OF_VERIFIERS()
     const sizes = (await Promise.all(new Array(AMOUNT_OF_VERIFIERS).fill(0).map((v, index) => wormholeToken.read.VERIFIER_SIZES([BigInt(index)]))))
     return sizes as number[]
 }
 
 
-export async function getAcceptedChainIdFromContract(wormholeToken: WormholeToken):Promise<readonly bigint[]> {
+export async function getAcceptedChainIdFromContract(wormholeToken: WormholeToken): Promise<readonly bigint[]> {
     return await wormholeToken.read.getAcceptedChainIds()
 }
 export function getCircuitSize(amountBurnAddresses: number, circuitSizes: number[]) {
@@ -236,6 +238,58 @@ export function getWormholeTokenContract(address: Address, client: { wallet?: Wa
     });
 }
 
-export async function getTokenPriceInEth(token:Address, fullNode:PublicClient) {
+export async function getTokenPriceInEth(token: Address, fullNode: PublicClient) {
     return false
+}
+
+export async function getContractConfig(address:Address, fullNode:PublicClient) {
+    const wormholeTokenFull = getContract({
+        address,
+        abi: WormholeTokenArtifact.abi as WormholeToken$Type["abi"],
+        client: { public: fullNode }
+    });
+
+    const powDifficulty = wormholeTokenFull.read.POW_DIFFICULTY()
+    const reMintLimit = wormholeTokenFull.read.RE_MINT_LIMIT();
+    const maxTreeDepth = wormholeTokenFull.read.MAX_TREE_DEPTH();
+    const isCrossChain = wormholeTokenFull.read.IS_CROSS_CHAIN()
+    const decimalsTokenPrice = wormholeTokenFull.read.decimalsTokenPrice()
+    const deploymentBlock = wormholeTokenFull.read.DEPLOYMENT_BLOCK()
+    const tokenDecimals = wormholeTokenFull.read.decimals()
+    const tokenName = wormholeTokenFull.read.name()
+    const tokenSymbol = wormholeTokenFull.read.symbol()
+    const amountFreeTokens = wormholeTokenFull.read.amountFreeTokens()
+
+    const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
+    const acceptedChainIds = getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken)
+    const eip712Domain = wormholeTokenFull.read.eip712Domain()
+    const verifiersEntries = Promise.all((await verifierSizes).map(async (size, index) => [size, await wormholeTokenFull.read.VERIFIERS_PER_SIZE([size])]))
+
+    const config: WormholeContractConfig = {
+        VERIFIER_SIZES: await verifierSizes,
+        VERIFIERS_PER_SIZE: Object.fromEntries(await verifiersEntries),
+        POW_DIFFICULTY: padHex(await powDifficulty, { size: 32 }),
+        RE_MINT_LIMIT: await reMintLimit,
+        MAX_TREE_DEPTH: await maxTreeDepth,
+        IS_CROSS_CHAIN: await isCrossChain,
+        ACCEPTED_CHAIN_IDS: (await acceptedChainIds).map((id) => toHex(id)),
+        EIP712_NAME: (await eip712Domain)[1],
+        EIP712_VERSION: (await eip712Domain)[2],
+        decimalsTokenPrice: toHex(await decimalsTokenPrice),
+        DEPLOYMENT_BLOCK: await deploymentBlock,
+        tokenDecimals: await tokenDecimals,
+        tokenName: await tokenName,
+        tokenSymbol: await tokenSymbol,
+        amountFreeTokens: await amountFreeTokens
+    }
+
+    return config
+}
+
+
+export async function signViewKeyMessage(wallet:WalletClient, ethAccount?:Address, message=VIEWING_KEY_SIG_MESSAGE) {
+    if (wallet.account === undefined) throw new Error(viemAccountNotSetErr)
+    ethAccount = wallet.account.address
+    const signature = await wallet.signMessage({ message: message, account: ethAccount })
+    return {signature, message}
 }

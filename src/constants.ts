@@ -130,3 +130,11 @@ export const RE_MINT_RELAYER_GAS: { [chainId: Hex]: { [contract: Address]: { [ci
     // },
     //[toHex(17000)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
 } as const
+
+
+export const PROOF_TIME_PADDING =  {
+    3:5n,
+    32:5n,
+    100:5n
+}
+export const SLOWEST_PROOF_PADDING = PROOF_TIME_PADDING[100]

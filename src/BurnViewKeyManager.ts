@@ -1,11 +1,11 @@
 // PrivateWallet is a wrapper that exposes some of viem's WalletClient functions and requires them to only ever use one ethAccount
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
-import { ethAddress, hashMessage, padHex, toHex } from "viem";
+import { ethAddress, hashMessage, padHex, recoverMessageAddress, toHex } from "viem";
 import type { BurnAccount, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData, UnknownBurnAccountRecoverable, UnknownBurnAccountImportable, DerivedBurnAccountImportable } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, isValidPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
-import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getWormholeTokenContract, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
+import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getWormholeTokenContract, signViewKeyMessage, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
 import { BurnAccountSyncFieldsSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
@@ -44,6 +44,7 @@ export class BurnViewKeyManager {
         { viewKeyData, acceptedChainIds = [1], chainId, ethAddress }:
             { viewKeyData?: FullViewKeyData, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number, ethAddress?: Address } = {}
     ) {
+        if (viemWallet.account === undefined) throw new Error(viemAccountNotSetErr)
         this.viemWallet = viemWallet
         ethAddress ??= viemWallet.account?.address ? viemWallet.account?.address : "0x0000000000000000000000000000000000000000" as Address
         // only one accepted chainId? thats default!
@@ -76,20 +77,35 @@ export class BurnViewKeyManager {
 
     // prompts user to sign to create viewing keys and also store pubKey of eth account
     async #connect(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE) {
-        this.privateData.burnAccounts[ethAccount] ??= {detViewKeyRoot:undefined, pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {} };
+        this.privateData.burnAccounts[ethAccount] ??= { detViewKeyRoot: undefined, pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {} };
         if (this.privateData.burnAccounts[ethAccount].pubKey && this.privateData.burnAccounts[ethAccount].detViewKeyRoot) {
             return { viewKeyRoot: this.privateData.burnAccounts[ethAccount].detViewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount].pubKey }
         } else {
-            const signature = await this.viemWallet.signMessage({ message: message, account: ethAccount })
-            const hash = hashMessage(message);
-            const viewKeyRoot = toHex(getViewingKey({ signature: signature }));
-            const { pubKeyX, pubKeyY } = await extractPubKeyFromSig({ hash, signature })
-
-            this.privateData.burnAccounts[ethAccount].detViewKeyRoot = viewKeyRoot
-
-            this.privateData.burnAccounts[ethAccount].pubKey = { x: pubKeyX, y: pubKeyY }
-            return { viewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount] }
+            const {signature} = await signViewKeyMessage(this.viemWallet,ethAccount,message)
+            return this.#storeSignIn(signature, message, ethAccount)
         }
+    }
+
+    async #storeSignIn(signature: Hex, message: string, ethAccount: Address) {
+        const hash = hashMessage(message);
+        const viewKeyRoot = toHex(getViewingKey({ signature: signature }));
+        const { pubKeyX, pubKeyY } = await extractPubKeyFromSig({ hash, signature })
+
+        this.privateData.burnAccounts[ethAccount].detViewKeyRoot = viewKeyRoot
+
+        this.privateData.burnAccounts[ethAccount].pubKey = { x: pubKeyX, y: pubKeyY }
+        return { viewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount] }
+    }
+
+    async connectPreSigned(wallet:WalletClient,signature: Hex, message: string) {
+        if (wallet.account === undefined) throw new Error(viemAccountNotSetErr)
+        const recovered = await recoverMessageAddress({ message, signature })
+        const ethAccount = wallet.account.address
+        if (recovered.toLowerCase() !== ethAccount.toLowerCase()) {
+            throw new Error(`connectPreSigned: signature does not match ethAccount. Recovered ${recovered}, expected ${ethAccount}`)
+        }
+        this.viemWallet = wallet
+        await this.#storeSignIn(signature, message, ethAccount)
     }
 
     #createBurnAccountsKeys({ chainId, difficulty, ethAccount }: { chainId: number, difficulty: Hex, ethAccount: Address }) {
@@ -100,7 +116,7 @@ export class BurnViewKeyManager {
     }
 
     #createBurnAccountsKeysHex({ chainIdHex, difficultyHex, ethAccount }: { chainIdHex: Hex, difficultyHex: Hex, ethAccount: Address }) {
-        this.privateData.burnAccounts[ethAccount] ??= { pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {}, detViewKeyRoot:undefined };
+        this.privateData.burnAccounts[ethAccount] ??= { pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {}, detViewKeyRoot: undefined };
         this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex] ??= {};
         this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyHex] ??= { derivedBurnAccounts: [], unknownBurnAccounts: {} };
     }
@@ -144,10 +160,10 @@ export class BurnViewKeyManager {
      * @returns The deterministic view key root.
      */
     async getDeterministicViewKeyRoot(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE): Promise<Hex> {
-        if ( this.privateData.burnAccounts[ethAccount] === undefined || this.privateData.burnAccounts[ethAccount].detViewKeyRoot === undefined) {
+        if (this.privateData.burnAccounts[ethAccount] === undefined || this.privateData.burnAccounts[ethAccount].detViewKeyRoot === undefined) {
             await this.#connect(ethAccount, message)
         }
-        return  this.privateData.burnAccounts[ethAccount].detViewKeyRoot as Hex
+        return this.privateData.burnAccounts[ethAccount].detViewKeyRoot as Hex
     }
 
     /**
@@ -155,7 +171,7 @@ export class BurnViewKeyManager {
      * @returns The wallet's spending public key as `{ x, y }`.
      */
     async getPubKey(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE) {
-        if (this.privateData.burnAccounts[ethAccount] === undefined  || this.privateData.burnAccounts[ethAccount].pubKey === undefined) {
+        if (this.privateData.burnAccounts[ethAccount] === undefined || this.privateData.burnAccounts[ethAccount].pubKey === undefined) {
             await this.#connect(ethAccount, message)
         }
         return this.privateData.burnAccounts[ethAccount].pubKey as { x: Hex, y: Hex }
@@ -373,12 +389,13 @@ export class BurnViewKeyManager {
         { forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode, onlySignInWith }: { forceReSign?: boolean, forceReHashViewKey?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient, onlySignInWith?: Address } = {}
     ) {
         fullNode ??= archiveNode;
-        const allBurnAccounts = BurnAccountToFlatArrExportedData(importedViewKeyData)
+        const allBurnAccounts = BurnAccountToFlatArrExportedData(importedViewKeyData).filter(n => n)
 
         // ---------- sign in before import -------------
         // so the user only gets one request per ethAccount+message combo
 
         const seen = new Set<string>();
+        console.log({ allBurnAccounts })
         const toConnect = allBurnAccounts.filter((b) => {
             if (onlySignInWith && b.ethAccount !== onlySignInWith) return false;
             const key = `${b.ethAccount}:${"viewKeySigMessage" in b ? b.viewKeySigMessage : ""}`;
