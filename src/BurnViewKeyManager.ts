@@ -395,7 +395,6 @@ export class BurnViewKeyManager {
         // so the user only gets one request per ethAccount+message combo
 
         const seen = new Set<string>();
-        console.log({ allBurnAccounts })
         const toConnect = allBurnAccounts.filter((b) => {
             if (onlySignInWith && b.ethAccount !== onlySignInWith) return false;
             const key = `${b.ethAccount}:${"viewKeySigMessage" in b ? b.viewKeySigMessage : ""}`;
