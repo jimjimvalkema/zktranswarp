@@ -643,7 +643,7 @@ export class BurnWallet {
         ])
         signingEthAccount ??= await this.defaultSigner()
 
-        await superSafeBurn(fullBurnAccount, amount, tokenAddress, this.viemWallet, fullNode, signingEthAccount, {
+        return await superSafeBurn(fullBurnAccount, amount, tokenAddress, this.viemWallet, fullNode, signingEthAccount, {
             difficulty: BigInt(contractConfig.POW_DIFFICULTY),
             reMintLimit: BigInt(contractConfig.RE_MINT_LIMIT),
             maxTreeDepth: Number(contractConfig.MAX_TREE_DEPTH),
