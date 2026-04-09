@@ -97,7 +97,6 @@ export function findPoWNonce({ blindedAddressDataHash, startingValue, difficulty
     let powHash: bigint = hashPow({ blindedAddressDataHash, powNonce });
     let hashingRounds = 0
     const start = Date.now()
-    console.log(`doing PoW. difficulty:${toHex(difficulty, { size: 32 })}`)
     do {
         if (powHash < difficulty) {
             break;
@@ -106,14 +105,14 @@ export function findPoWNonce({ blindedAddressDataHash, startingValue, difficulty
         powHash = hashPow({ blindedAddressDataHash, powNonce })
         hashingRounds += 1
     } while (powHash >= difficulty)
-    console.log(
-// `
-// found powNonce:${toHex(powNonce, { size: 32 })} 
-// with blindedAddressDataHash:${toHex(blindedAddressDataHash, { size: 32 })}, 
-// `
-// +
-`did ${hashingRounds} hashing rounds. 
-It took ${Date.now() - start}ms`)
+//     console.log(
+// // `
+// // found powNonce:${toHex(powNonce, { size: 32 })} 
+// // with blindedAddressDataHash:${toHex(blindedAddressDataHash, { size: 32 })}, 
+// // `
+// // +
+// `did ${hashingRounds} hashing rounds. 
+// It took ${Date.now() - start}ms`)
     return powNonce
 }
 

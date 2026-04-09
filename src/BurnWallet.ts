@@ -340,7 +340,6 @@ export class BurnWallet {
         if (onlyImportSigner) {
             onlySignInWith = await this.defaultSigner();
         }
-        console.log({ onlySignInWith, onlyImportSigner })
         const parsed = JSON.parse(json) as { merkleTrees: ExportedMerkleTrees, privateData: ExportedViewKeyData }
         const archiveNode = await this.#getPublicClient({ type: "archive", chainId })
         const fullNode = await this.#getPublicClient({ type: "full", chainId })
@@ -387,7 +386,6 @@ export class BurnWallet {
     }
 
     async syncTree(tokenAddress: Address, { chainId, deploymentBlock, blocksPerGetLogsReq }: { chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}) {
-        console.log("starting tree sync")
         chainId ??= await this.viemWallet.getChainId()
         const [archiveNode, fullNode, preSyncedTree] = await Promise.all([
             this.#getPublicClient({ type: "archive", chainId }),
@@ -396,7 +394,6 @@ export class BurnWallet {
         ])
         const syncedTree = await getSyncedMerkleTree(tokenAddress, archiveNode, { fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq })
         this.#setMerkleTree(syncedTree, tokenAddress, chainId)
-        console.log("completed tree sync")
         return syncedTree
     }
 

@@ -19,6 +19,7 @@ import { getContract, padHex, toHex, type Hex, type PublicClient } from "viem";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { GasReport } from "./utils/gasReport.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PRE_MADE_BURN_ACCOUNTS = await readFile(
@@ -87,18 +88,10 @@ describe("Verifier gas", async function () {
         },
     );
 
-    const gasReport: Record<number, { proofBytes: number; publicInputsCount: number; verifyGas: bigint }> = {};
+    const gasReport = new GasReport("verifier.verify() (isolated)");
 
     after(function () {
-        const pretty = Object.fromEntries(
-            Object.entries(gasReport).map(([k, v]) => [
-                k,
-                { proofBytes: v.proofBytes, publicInputsCount: v.publicInputsCount, verifyGas: Number(v.verifyGas) },
-            ]),
-        );
-        console.log("\n=== verifier.verify() gas (isolated, no merkle/transfer/event overhead) ===");
-        console.table(pretty);
-
+        gasReport.print();
         if (provingThreads != 1) process.exit(0);
     });
 
@@ -186,11 +179,7 @@ describe("Verifier gas", async function () {
                 account: deployer.account,
             });
 
-            gasReport[circuitSize] = {
-                proofBytes: (proof.length - 2) / 2,
-                publicInputsCount: publicInputs.length,
-                verifyGas,
-            };
+            gasReport.record(`verify (size ${circuitSize})`, verifyGas);
         });
     }
 });

@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { BurnViewKeyManager } from "../src/BurnViewKeyManager.ts";
 import { BurnWallet } from "../src/BurnWallet.ts";
 import { wormholeTokenAbi } from "../src/utils.ts";
+import { GasReport } from "./utils/gasReport.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const path = join(__dirname, './data/privateDataAlice.json')
@@ -32,6 +33,7 @@ export type WormholeTokenTest = ContractReturnType<typeof WormholeTokenContractN
 
 
 let gas: any = { "transfers": {} }
+const gasReport = new GasReport("remintWithRelayer2.test")
 describe("Token", async function () {
     const SNARK_SCALAR_FIELD = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617")
 
@@ -95,6 +97,7 @@ describe("Token", async function () {
     })
 
     after(function () {
+        gasReport.print()
         if (provingThreads != 1) {
             console.log("if a test is skipped comment out process.exit(0) to see the error")
             //bb's wasm fucks with node not closing
@@ -155,7 +158,8 @@ describe("Token", async function () {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
                     // TODO  BigInt(amountOfBurnAccounts) in remint100
-                    await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    const burnTx = await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
                 // 1 eth will give you 69 token. the eth price of token is 0.0144 eth (1/69)
                 const relayerBonus = parseUnits("1", decimalsToken)
@@ -201,6 +205,7 @@ describe("Token", async function () {
                 //const reMintTx = await relayerBurnWallet.relayTx(relayInputs)
                 const reMintTx = await relayTx(relayInputs, relayer)
                 const txReceipt = await publicClient.getTransactionReceipt({ hash: reMintTx });
+                gasReport.record(`reMint (relayer, size ${CIRCUIT_SIZE})`, txReceipt.gasUsed)
                 const logs = parseEventLogs({
                     abi: wormholeTokenAbi,
                     logs: txReceipt.logs,
@@ -230,20 +235,20 @@ describe("Token", async function () {
             const totalMinted = recipientBalance + relayerBalance + refundAddressBalance
             const expectedTotalReMinted = expectedRecipientBalance + expectedRelayerBalance + expectedRefundBalance
 
-            console.log({
-                relayerBalance__________: relayerBalance,
-                recipientBalance________: recipientBalance,
-                refundAddressBalance____: refundAddressBalance,
-            })
-            console.log({
-                expectedRelayerBalance__: expectedRelayerBalance,
-                expectedRecipientBalance: expectedRecipientBalance,
-                expectedRefundBalance___: expectedRefundBalance
-            })
-            console.log({
-                totalMinted__________: totalMinted,
-                expectedTotalReMinted: expectedTotalReMinted
-            })
+            // console.log({
+            //     relayerBalance__________: relayerBalance,
+            //     recipientBalance________: recipientBalance,
+            //     refundAddressBalance____: refundAddressBalance,
+            // })
+            // console.log({
+            //     expectedRelayerBalance__: expectedRelayerBalance,
+            //     expectedRecipientBalance: expectedRecipientBalance,
+            //     expectedRefundBalance___: expectedRefundBalance
+            // })
+            // console.log({
+            //     totalMinted__________: totalMinted,
+            //     expectedTotalReMinted: expectedTotalReMinted
+            // })
             assert.equal(expectedTotalReMinted, totalMinted, "amount reMinted not matched");
             assert.equal(recipientBalance, expectedRecipientBalance, "recipient did not receive enough tokens");
             assert(relayerBalance >= expectedRelayerBalance, "relayer did not receive enough tokens");

@@ -650,25 +650,22 @@ export async function hashAndProof(
 }
 
 export function getBackend(circuitSize: number, threads?: number) {
-    console.log("initializing backend with circuit")
     threads = threads ?? getAvailableThreads()
-    console.log({ threads, circuitSize })
     const byteCode = circuits[circuitSize].bytecode
     return new UltraHonkBackend(byteCode, { threads: threads }, { recursive: false });
 }
 
 export async function generateProof(proofInputs: ProofInputs, circuitSizes: number[], { threads, backends }: { backends?: BackendPerSize, threads?: number } = {}) {
     const circuitSize = getCircuitSize(proofInputs.burn_data_public.length, circuitSizes)
-    console.log("proving with:", { circuitSize, threads })
+    console.log("generating proof")
+    const start = Date.now()
     const backend = (backends && backends[circuitSize]) ?? getBackend(circuitSize, threads)
 
     const circuitJson = circuits[circuitSize];
     const noir = new Noir(circuitJson as CompiledCircuit);
     const { witness } = await noir.execute(proofInputs as InputMap);
-    console.log("generating proof")
-    const start = Date.now()
     const proof = await backend.generateProof(witness, { keccakZK: true });
-    
+
     console.log(`finished proving. It took ${Date.now() - start}ms`)
     return proof
 }

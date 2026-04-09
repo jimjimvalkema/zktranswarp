@@ -9,18 +9,22 @@ import { deployPoseidon2Huff } from "@warptoad/gigabridge-js"
 import { FIELD_LIMIT, WormholeTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
 import { getSyncedMerkleTree } from "../src/syncing.ts";
 //import { noir_test_main_self_relay, noir_verify_sig } from "../src/noirtests.js";
+import { getBackend } from "../src/proving.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
-import { BurnWallet } from "../src/BurnWallet.ts";
-import { getContract, padHex, parseEventLogs, toHex, type Hash, type Hex, type PublicClient } from "viem";
+import { proofAndSelfRelay, relayTx, safeBurn, superSafeBurn } from "../src/transact.ts";
+import { getContract, padHex, parseEventLogs, toHex, type Hash, type Hex } from "viem";
+import type { BurnAccount } from "../src/types.ts";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { BurnViewKeyManager } from "../src/BurnViewKeyManager.ts";
+import { BurnWallet } from "../src/BurnWallet.ts";
 import { GasReport } from "./utils/gasReport.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const path = join(__dirname, './data/privateDataAlice.json')
 
-const CIRCUIT_SIZE = 3;
+const CIRCUIT_SIZE = 32;
 const provingThreads = 1 //1; //undefined  // giving the backend more threads makes it hang and impossible to debug // set to undefined to use max threads available
 const PRE_MADE_BURN_ACCOUNTS = await readFile(path, { encoding: "utf-8" })
 
@@ -28,12 +32,12 @@ export type WormholeTokenTest = ContractReturnType<typeof WormholeTokenContractN
 
 
 let gas: any = { "transfers": {} }
-const gasReport = new GasReport("remint3.test")
+const gasReport = new GasReport(`remint${32}.test`)
 describe("Token", async function () {
     const SNARK_SCALAR_FIELD = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617")
 
     const { viem } = await network.connect();
-    const publicClient = await viem.getPublicClient() as PublicClient;
+    const publicClient = await viem.getPublicClient();
     let wormholeToken: ContractReturnType<typeof WormholeTokenContractName>;
     let reMintVerifier3: ContractReturnType<typeof reMint3InVerifierContractName>;
     let reMintVerifier32: ContractReturnType<typeof reMint32InVerifierContractName>;
@@ -91,64 +95,18 @@ describe("Token", async function () {
         //await wormholeToken.write.getFreeTokens([feeEstimatorPrivate.burnAddress])
     })
 
+
     after(function () {
         gasReport.print()
         if (provingThreads != 1) {
             console.log("if a test is skipped comment out process.exit(0) to see the error")
             //bb's wasm fucks with node not closing
-            process.exit(0);
+            //process.exit(0);
         }
     })
 
-    describe("Token", async function () {
-        it("Should transfer", async function () {
-            const chainId = await publicClient.getChainId()
-            const alicePrivate = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
-            const aliceBurnAccount = await alicePrivate.createBurnAccount(wormholeToken.address, { viewingKeyIndex: 0 })
-
-            let totalAmountInserts = 0
-            const startIndex = 2
-            for (let index = startIndex; index < 3; index++) {
-                //it("Should transfer", async function () {
-                const amountFreeTokens = await wormholeToken.read.amountFreeTokens()
-                await wormholeToken.write.getFreeTokens([deployer.account.address]) //sends 1_000_000n token
-
-                let transferTx: Hash = "0x00"
-                const amountTransfers = 2 ** index + Math.floor(Math.random() * startIndex - startIndex / 2);// a bit of noise is always good!
-                totalAmountInserts += amountTransfers + 1
-                const firstTransferTx = await wormholeToken.write.transfer([alice.account.address, 420n])
-
-                for (let index = 0; index < amountTransfers; index++) {
-                    transferTx = await wormholeToken.write.transfer([aliceBurnAccount.burnAddress, 420n])
-                }
-                // if deployer send to it self. tx.origin == recipient, and the merkle insertion is skipped!
-                // warm the slot
-                await wormholeToken.write.transfer([deployer.account.address, 420n])
-                const transferWithoutMerkleTx = await wormholeToken.write.transfer([deployer.account.address, 420n])
-                const transferWithoutMerkleReceipt = await publicClient.getTransactionReceipt({ hash: transferWithoutMerkleTx })
-                const firstTransferWithMerkleReceipt = await publicClient.getTransactionReceipt({ hash: firstTransferTx })
-                gasReport.record("transfer (no merkle insert)", transferWithoutMerkleReceipt.gasUsed)
-                gasReport.record("transfer (with merkle insert)", firstTransferWithMerkleReceipt.gasUsed)
-
-                const syncedTree = await getSyncedMerkleTree(wormholeToken.address, publicClient)
-                const jsRoot = syncedTree.tree.root
-                const onchainRoot = await wormholeToken.read.root()
-                assert.equal(jsRoot, onchainRoot, "jsRoot doesn't match onchainRoot")
-                const transferWithMerkleReceipt = await publicClient.getTransactionReceipt({ hash: transferTx })
-                gas["transfers"][index] = {
-                    totalAmountInserts,
-                    // dangling node inserts are cheaper so we take 2 measurements to hopefully catch a non dangling insert? @TODO find better method
-                    transferWithoutMerkle: { high: transferWithoutMerkleReceipt.gasUsed, low: transferWithoutMerkleReceipt.gasUsed },
-                    transferWithMerkle___: { high: transferWithMerkleReceipt.gasUsed, low: firstTransferWithMerkleReceipt.gasUsed },
-                    depth: (await wormholeToken.read.tree())[1]
-                }
-
-            }
-            const gasString = JSON.stringify(gas, (key, value) => typeof value === 'bigint' ? Number(value) : value, 2)
-            //console.log(gasString)
-        })
-
-        it("reMint 3x from 1 burn accounts", async function () {
+    describe("Token1", async function () {
+        it("reMint 3x from 1 burn account", async function () {
             // ----------------- config test -----------------
             const amountOfBurnAccounts = 1
             // reMint 3 times since the 1st tx needs no commitment inclusion proof, the 2nd one the total spend balance read only contains information of one spend
@@ -159,9 +117,6 @@ describe("Token", async function () {
             const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
             const reMintRecipient = bob.account.address
             // ---------------------------------------------
-            const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
-            console.log({ contractConfig })
-
 
 
             const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
@@ -196,7 +151,8 @@ describe("Token", async function () {
                 // await aliceBurnWallet.sync(wormholeToken.address)
                 // do in steps, uis will do at as well. although they should consider doing it concurrently!!!
                 // await aliceBurnWallet.syncAccounts(wormholeToken.address)
-                // await aliceBurnWallet.syncTree(wormholeToken.address)  
+                // await aliceBurnWallet.syncTree(wormholeToken.address)
+                const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
                 const proof = await aliceBurnWallet.easyProof(
                     wormholeToken.address,
                     reMintRecipient,
@@ -240,24 +196,21 @@ describe("Token", async function () {
             }
             // test wallet imports TODO move this
             const walletExport = aliceBurnWallet.exportWallet({ paranoidMode: false, merkleTree: false })
-            const alicePrivate2 = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
+            const alicePrivate2 = new BurnWallet(alice, { acceptedChainIds: [await publicClient.getChainId()] })
             await alicePrivate2.importWallet(walletExport, wormholeToken.address)
         })
 
-        it("reMint 5x from 3 burn accounts", async function () {
+        it("reMint 3x from 32 burn accounts", async function () {
             // ----------------- config test -----------------
-            const amountOfBurnAccounts = 3
+            const amountOfBurnAccounts = 32
             // reMint 3 times since the 1st tx needs no commitment inclusion proof, the 2nd one the total spend balance read only contains information of one spend
-            const reMintAmounts = [69n, 69000n,69000n,69000n, 420n * 10n ** 18n]
+            const reMintAmounts = [69n, 69000n, 420n * 10n ** 18n]
             // acceptedChainIds defaults to [1n], but our chainId is 31337 so we need to set it.
             // archiveNodes will default to the node inside the client (`alice`), but that is generally a bad idea in prod since those are heavily rate limited note even archive clients
             const chainId = await publicClient.getChainId()
             const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
             const reMintRecipient = bob.account.address
             // ---------------------------------------------
-            const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
-            console.log({ contractConfig })
-
 
 
             const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
@@ -292,7 +245,8 @@ describe("Token", async function () {
                 // await aliceBurnWallet.sync(wormholeToken.address)
                 // do in steps, uis will do at as well. although they should consider doing it concurrently!!!
                 // await aliceBurnWallet.syncAccounts(wormholeToken.address)
-                // await aliceBurnWallet.syncTree(wormholeToken.address)  
+                // await aliceBurnWallet.syncTree(wormholeToken.address)
+                const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
                 const proof = await aliceBurnWallet.easyProof(
                     wormholeToken.address,
                     reMintRecipient,
@@ -336,7 +290,7 @@ describe("Token", async function () {
             }
             // test wallet imports TODO move this
             const walletExport = aliceBurnWallet.exportWallet({ paranoidMode: false, merkleTree: false })
-            const alicePrivate2 = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
+            const alicePrivate2 = new BurnWallet(alice, { acceptedChainIds: [await publicClient.getChainId()] })
             await alicePrivate2.importWallet(walletExport, wormholeToken.address)
         })
     })

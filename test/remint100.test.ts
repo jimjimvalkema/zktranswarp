@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { BurnViewKeyManager } from "../src/BurnViewKeyManager.ts";
 import { BurnWallet } from "../src/BurnWallet.ts";
+import { GasReport } from "./utils/gasReport.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const path = join(__dirname, './data/privateDataAlice.json')
@@ -31,6 +32,7 @@ export type WormholeTokenTest = ContractReturnType<typeof WormholeTokenContractN
 
 
 let gas: any = { "transfers": {} }
+const gasReport = new GasReport(`remint${100}.test`)
 describe("Token", async function () {
     const SNARK_SCALAR_FIELD = BigInt("21888242871839275222246405745257275088548364400416034343698204186575808495617")
 
@@ -95,6 +97,7 @@ describe("Token", async function () {
 
 
     after(function () {
+        gasReport.print()
         if (provingThreads != 1) {
             console.log("if a test is skipped comment out process.exit(0) to see the error")
             //bb's wasm fucks with node not closing
@@ -136,7 +139,8 @@ describe("Token", async function () {
                 for (const aliceBurnAccount of aliceBurnAccounts) {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
-                    await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    const burnTx = await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
 
                 // TODO BurnWallet.sync() syncs all. should be split in BurnWallet.syncTree() BurnWallet.syncAccounts()
@@ -161,6 +165,7 @@ describe("Token", async function () {
                     }
                 )
                 const reMintTx = await aliceBurnWallet.selfRelayTx(proof)
+                await gasReport.recordTx(`reMint (selfRelay, size ${CIRCUIT_SIZE})`, reMintTx, publicClient)
                 expectedRecipientBalance += reMintAmount
                 reMintTxs.push(reMintTx)
 
@@ -195,9 +200,9 @@ describe("Token", async function () {
             await alicePrivate2.importWallet(walletExport, wormholeToken.address)
         })
 
-        it("reMint 3x from 3 burn accounts", async function () {
+        it("reMint 3x from 4 burn accounts", async function () {
             // ----------------- config test -----------------
-            const amountOfBurnAccounts = 1
+            const amountOfBurnAccounts = 4
             // reMint 3 times since the 1st tx needs no commitment inclusion proof, the 2nd one the total spend balance read only contains information of one spend
             const reMintAmounts = [69n, 69000n, 420n * 10n ** 18n]
             // acceptedChainIds defaults to [1n], but our chainId is 31337 so we need to set it.
@@ -228,7 +233,8 @@ describe("Token", async function () {
                 for (const aliceBurnAccount of aliceBurnAccounts) {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
-                    await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    const burnTx = await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
 
                 // TODO BurnWallet.sync() syncs all. should be split in BurnWallet.syncTree() BurnWallet.syncAccounts()
@@ -253,6 +259,7 @@ describe("Token", async function () {
                     }
                 )
                 const reMintTx = await aliceBurnWallet.selfRelayTx(proof)
+                await gasReport.recordTx(`reMint (selfRelay, size ${CIRCUIT_SIZE})`, reMintTx, publicClient)
                 expectedRecipientBalance += reMintAmount
                 reMintTxs.push(reMintTx)
 
@@ -288,7 +295,7 @@ describe("Token", async function () {
         })
         it("reMint 5x from 100 burn accounts", async function () {
             // ----------------- config test -----------------
-            const amountOfBurnAccounts = 1
+            const amountOfBurnAccounts = 100
             // reMint 3 times since the 1st tx needs no commitment inclusion proof, the 2nd one the total spend balance read only contains information of one spend
             const reMintAmounts = [69n, 69000n, 69n * 10n ** 18n, 69n * 10n ** 18n, 420n * 10n ** 18n]
             // acceptedChainIds defaults to [1n], but our chainId is 31337 so we need to set it.
@@ -320,7 +327,8 @@ describe("Token", async function () {
                 for (const aliceBurnAccount of aliceBurnAccounts) {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
-                    await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    const burnTx = await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
 
                 // TODO BurnWallet.sync() syncs all. should be split in BurnWallet.syncTree() BurnWallet.syncAccounts()
@@ -344,6 +352,7 @@ describe("Token", async function () {
                     }
                 )
                 const reMintTx = await aliceBurnWallet.selfRelayTx(proof)
+                await gasReport.recordTx(`reMint (selfRelay, size ${CIRCUIT_SIZE})`, reMintTx, publicClient)
                 expectedRecipientBalance += reMintAmount
                 reMintTxs.push(reMintTx)
 

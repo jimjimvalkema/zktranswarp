@@ -432,15 +432,27 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712 {
         }
 
         // giga ugly solidity array bs :/
-        address[] memory recipients = new address[](3);
-        recipients[0] = _signatureInputs.recipient;
-        recipients[1] = _feeData.refundAddress;
-        recipients[2] = relayerAddress;
-        uint256[] memory amounts = new uint256[](3);
-        amounts[0] = _feeData.amountForRecipient;
-        amounts[1] = _refundAmount;
-        amounts[2] = _fee;
-        _reMintBulk(recipients, amounts, _totalMintedLeafs);
+        if(_signatureInputs.recipient == _feeData.refundAddress) {
+            // saves on gas in this case but more importantly does not confuse recipient getting 2 transfer logs for 1 "withdraw all" tx
+            address[] memory recipients = new address[](2);
+            recipients[0] = _signatureInputs.recipient;
+            recipients[1] = _feeData.refundAddress;
+            uint256[] memory amounts = new uint256[](2);
+            amounts[0] = _feeData.amountForRecipient + _refundAmount;
+            amounts[1] = _refundAmount;
+            _reMintBulk(recipients, amounts, _totalMintedLeafs);
+        } else {
+            address[] memory recipients = new address[](3);
+            recipients[0] = _signatureInputs.recipient;
+            recipients[1] = _feeData.refundAddress;
+            recipients[2] = relayerAddress;
+            uint256[] memory amounts = new uint256[](3);
+            amounts[0] = _feeData.amountForRecipient;
+            amounts[1] = _refundAmount;
+            amounts[2] = _fee;
+            _reMintBulk(recipients, amounts, _totalMintedLeafs);
+        }
+
         _processCall(_signatureInputs);
     }
 
