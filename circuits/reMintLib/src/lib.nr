@@ -291,6 +291,7 @@ pub fn reMint<let MAX_TREE_DEPTH: u32>(
     // check amount spent
     let new_total_minted: Field = prev_total_minted + amount_to_mint;
     assert_lt(new_total_minted, re_mint_limit); //, "burn account went over the re_mint_limit limit");
+    assert_lt(prev_total_minted, new_total_minted); //, "prev_total_minted is overflowing";
     assert(lower_then_or_equal(new_total_minted, total_burned), "spend exceeds total received");
 
     //

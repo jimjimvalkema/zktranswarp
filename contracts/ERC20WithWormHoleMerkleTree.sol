@@ -28,10 +28,16 @@ import {SNARK_SCALAR_FIELD} from "zk-kit-lean-imt-custom-hash/Constants.sol";
  * conventional and does not conflict with the expectations of ERC-20
  * applications.
  */
-abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata, IERC20Errors {
+abstract contract ERC20WithWormHoleMerkleTree is
+    Context,
+    IERC20,
+    IERC20Metadata,
+    IERC20Errors
+{
     mapping(address account => uint256) private _balances;
 
-    mapping(address account => mapping(address spender => uint256)) private _allowances;
+    mapping(address account => mapping(address spender => uint256))
+        private _allowances;
 
     uint256 private _totalSupply;
 
@@ -49,11 +55,26 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
         _symbol = symbol_;
     }
 
+    function _updateBalanceInMerkleTree(
+        address _to,
+        uint256 _newBalance
+    ) internal virtual;
 
-    function _updateBalanceInMerkleTree(address _to, uint256 _newBalance) virtual internal;
-    function _updateBalanceInMerkleTree(address _to, uint256 _newBalance, uint256[] memory _totalMintedLeafs) virtual internal;
-    function _updateBalanceInMerkleTree(address[] memory _to, uint256[] memory _newBalance, uint256[] memory _totalMintedLeafs) virtual internal;
-    function _insertManyInMerkleTree(uint256[] memory _totalMintedLeafs) virtual internal;
+    function _updateBalanceInMerkleTree(
+        address _to,
+        uint256 _newBalance,
+        uint256[] memory _totalMintedLeafs
+    ) internal virtual;
+
+    function _updateBalanceInMerkleTree(
+        address[] memory _to,
+        uint256[] memory _newBalance,
+        uint256[] memory _totalMintedLeafs
+    ) internal virtual;
+
+    function _insertManyInMerkleTree(
+        uint256[] memory _totalMintedLeafs
+    ) internal virtual;
 
     /**
      * @dev Returns the name of the token.
@@ -118,7 +139,10 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
     /**
      * @dev See {IERC20-allowance}.
      */
-    function allowance(address owner, address spender) public view virtual returns (uint256) {
+    function allowance(
+        address owner,
+        address spender
+    ) public view virtual returns (uint256) {
         return _allowances[owner][spender];
     }
 
@@ -132,7 +156,10 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
      *
      * - `spender` cannot be the zero address.
      */
-    function approve(address spender, uint256 value) public virtual returns (bool) {
+    function approve(
+        address spender,
+        uint256 value
+    ) public virtual returns (bool) {
         address owner = _msgSender();
         _approve(owner, spender, value);
         return true;
@@ -154,7 +181,11 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
      * - the caller must have allowance for ``from``'s tokens of at least
      * `value`.
      */
-    function transferFrom(address from, address to, uint256 value) public virtual returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 value
+    ) public virtual returns (bool) {
         address spender = _msgSender();
         _spendAllowance(from, spender, value);
         _transfer(from, to, value);
@@ -178,7 +209,9 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
         if (to == address(0)) {
             revert ERC20InvalidReceiver(address(0));
         }
-        _update(from, to, value);
+        uint256 toNewBalance = _update(from, to, value);
+
+        _updateBalanceInMerkleTree(to, toNewBalance);
     }
 
     /**
@@ -188,7 +221,11 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
      *
      * Emits a {Transfer} event.
      */
-    function _update(address from, address to, uint256 value) internal virtual {
+    function _update(
+        address from,
+        address to,
+        uint256 value
+    ) internal virtual returns (uint256 toNewBalance) {
         if (from == address(0)) {
             // Overflow check required: The rest of the code assumes that totalSupply never overflows
             _totalSupply += value;
@@ -208,18 +245,18 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
                 // Overflow not possible: value <= totalSupply or value <= fromBalance <= totalSupply.
                 _totalSupply -= value;
             }
+            toNewBalance = _balances[to];
         } else {
-            uint256 newBalance;
-            newBalance = _balances[to] + value;
-            require(newBalance < SNARK_SCALAR_FIELD, "balance can't go over the FIELD LIMIT");
+            toNewBalance = _balances[to] + value;
+            require(
+                toNewBalance < SNARK_SCALAR_FIELD,
+                "balance can't go over the FIELD LIMIT"
+            );
 
-            _balances[to] = newBalance;
-
-            // we only care about `to` since zkwormhole accounts can only receive from the public not spend
-            // so the _balances[to] number goes up only :D
-            _updateBalanceInMerkleTree(to, newBalance);
+            _balances[to] = toNewBalance;
         }
         emit Transfer(from, to, value);
+        return toNewBalance;
     }
 
     /**
@@ -228,11 +265,17 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
      * this function.
      *
      * Emits a {Transfer} event.
-     * 
+     *
      * Same as _update but added _accountNoteHash so it use insertMany to save on gas and _totalSupply doesn't increase
      */
-    function _reMint(address to, uint256 value, uint256[] memory _totalMintedLeafs) internal virtual {
-        uint256[] memory _totalMintedLeafsTrimmed = trimTrailingZeros(_totalMintedLeafs);
+    function _reMint(
+        address to,
+        uint256 value,
+        uint256[] memory _totalMintedLeafs
+    ) internal virtual {
+        uint256[] memory _totalMintedLeafsTrimmed = trimTrailingZeros(
+            _totalMintedLeafs
+        );
         if (to == address(0)) {
             unchecked {
                 // Overflow not possible: value <= totalSupply or value <= fromBalance <= totalSupply.
@@ -242,19 +285,28 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
         } else {
             uint256 newBalance;
             newBalance = _balances[to] + value;
+            require(
+                newBalance < SNARK_SCALAR_FIELD,
+                "balance can't go over the FIELD LIMIT"
+            );
 
             _balances[to] = newBalance;
-            require(newBalance < SNARK_SCALAR_FIELD, "balance can't go over the FIELD LIMIT");
 
             // we only care about `to` since zkwormhole accounts can only receive from the public not spend
             // so the _balances[to] number goes up only :D
             // this inserts both _accountNoteHash and poseidon2(to, newBalance)
-            _updateBalanceInMerkleTree(to, newBalance, _totalMintedLeafsTrimmed);
+            _updateBalanceInMerkleTree(
+                to,
+                newBalance,
+                _totalMintedLeafsTrimmed
+            );
         }
         emit Transfer(address(0), to, value);
     }
 
-    function trimTrailingZeros(uint256[] memory arr) internal pure returns (uint256[] memory) {
+    function trimTrailingZeros(
+        uint256[] memory arr
+    ) internal pure returns (uint256[] memory) {
         // you can trim the original without copies. But that can be unsafe.
         uint256[] memory trimmed = new uint256[](arr.length);
         uint256 lastNonZero = 0;
@@ -272,8 +324,15 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
 
         return trimmed;
     }
-    function _reMintBulk(address[] memory recipients, uint256[] memory amounts, uint256[] memory _totalMintedLeafs) internal virtual {
-        uint256[] memory _totalMintedLeafsTrimmed = trimTrailingZeros(_totalMintedLeafs);
+
+    function _reMintBulk(
+        address[] memory recipients,
+        uint256[] memory amounts,
+        uint256[] memory _totalMintedLeafs
+    ) internal virtual {
+        uint256[] memory _totalMintedLeafsTrimmed = trimTrailingZeros(
+            _totalMintedLeafs
+        );
         uint256[] memory newBalances = new uint256[](amounts.length);
         for (uint i = 0; i < recipients.length; i++) {
             address to = recipients[i];
@@ -283,12 +342,14 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
                     // Overflow not possible: value <= totalSupply or value <= fromBalance <= totalSupply.
                     _totalSupply -= value;
                 }
-                _insertManyInMerkleTree(_totalMintedLeafsTrimmed);
             } else {
                 uint256 newBalance;
                 newBalance = _balances[to] + value;
+                require(
+                    newBalance < SNARK_SCALAR_FIELD,
+                    "balance can't go over the FIELD LIMIT"
+                );
                 _balances[to] = newBalance;
-                require(newBalance < SNARK_SCALAR_FIELD, "balance can't go over the FIELD LIMIT");
 
                 // we only care about `to` since zkwormhole accounts can only receive from the public not spend
                 // so the _balances[to] number goes up only :D
@@ -297,7 +358,47 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
             }
             emit Transfer(address(0), to, value);
         }
-        _updateBalanceInMerkleTree(recipients, newBalances, _totalMintedLeafsTrimmed);
+        _updateBalanceInMerkleTree(
+            recipients,
+            newBalances,
+            _totalMintedLeafsTrimmed
+        );
+    }
+
+    /**
+     *
+     * Requirements:
+     *
+     * - `to` cannot contain zero addresses.
+     * - the caller must have a balance of at least `value`.
+     */
+    function transferBulk(
+        address[] calldata recipients,
+        uint256[] calldata values
+    ) public virtual returns (bool) {
+        require(
+            recipients.length == values.length,
+            "recipients and values length did not match"
+        );
+        address from = _msgSender();
+        if (from == address(0)) {
+            revert ERC20InvalidSender(address(0));
+        }
+
+        uint256 amountRecipients = recipients.length;
+        uint256[] memory newBalances = new uint256[](amountRecipients);
+        // do transfers
+        for (uint256 i = 0; i < amountRecipients; i++) {
+            address to = recipients[i];
+            uint256 value = values[i];
+            if (to == address(0)) {
+                revert ERC20InvalidReceiver(address(0));
+            }
+            newBalances[i] = _update(from, to, value);
+        }
+
+        _updateBalanceInMerkleTree(recipients, newBalances, new uint256[](0));
+        return true;
     }
 
     /**
@@ -312,7 +413,9 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
         if (account == address(0)) {
             revert ERC20InvalidReceiver(address(0));
         }
-        _update(address(0), account, value);
+
+        uint256 toNewBalance = _update(address(0), account, value);
+        _updateBalanceInMerkleTree(account, toNewBalance);
     }
 
     /**
@@ -328,6 +431,8 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
             revert ERC20InvalidSender(address(0));
         }
         _update(account, address(0), value);
+        // this is a real burn. No-one can remint from this account
+        // we can skip merkle tree inserts
     }
 
     /**
@@ -367,7 +472,12 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
      *
      * Requirements are the same as {_approve}.
      */
-    function _approve(address owner, address spender, uint256 value, bool emitEvent) internal virtual {
+    function _approve(
+        address owner,
+        address spender,
+        uint256 value,
+        bool emitEvent
+    ) internal virtual {
         if (owner == address(0)) {
             revert ERC20InvalidApprover(address(0));
         }
@@ -388,11 +498,19 @@ abstract contract ERC20WithWormHoleMerkleTree is Context, IERC20, IERC20Metadata
      *
      * Does not emit an {Approval} event.
      */
-    function _spendAllowance(address owner, address spender, uint256 value) internal virtual {
+    function _spendAllowance(
+        address owner,
+        address spender,
+        uint256 value
+    ) internal virtual {
         uint256 currentAllowance = allowance(owner, spender);
         if (currentAllowance < type(uint256).max) {
             if (currentAllowance < value) {
-                revert ERC20InsufficientAllowance(spender, currentAllowance, value);
+                revert ERC20InsufficientAllowance(
+                    spender,
+                    currentAllowance,
+                    value
+                );
             }
             unchecked {
                 _approve(owner, spender, currentAllowance - value, false);
