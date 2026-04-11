@@ -7,6 +7,9 @@ syncTree ───────────────────────�
 syncBurnAccounts ──> selectBurnAccountsForSpend ──> signReMint ──> proof ──> relay
                          ↕ (UI decision point)
 ```
+## TODO force syncMerkle tree and syncBurnAccounts to syncTillBlock to be the same. Same for easyProof
+## TODO make signReMint, proof, relay, selfRelayTx check the nullifier (maybe not everyone to save on calls? Just the once that break ux)
+
 
 ## Full Flow
 

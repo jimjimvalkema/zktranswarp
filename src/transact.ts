@@ -74,12 +74,12 @@ export async function safeBurn(
         acceptedChainIds ??= (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
         if (acceptedChainIds.includes(burnAccount.chainId) === false) { throw new Error(`Burn account is on chainId:${burnAccount.chainId} but that is not a valid chainId for token: ${tokenAddress}, only these chainIds are accepted:${acceptedChainIds.toString()}`) }
     }
-    const isValidPow = isValidPowNonce({ 
-        blindedAddressDataHash:BigInt(burnAccount.blindedAddressDataHash), 
-        powNonce:BigInt(burnAccount.powNonce), 
-        difficulty:difficulty
+    const isValidPow = isValidPowNonce({
+        blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash),
+        powNonce: BigInt(burnAccount.powNonce),
+        difficulty: difficulty
     })
-    if (isValidPow === false) {throw new Error(`PoW incorrect. Difficulty is ${toHex(difficulty, {size:32})} but resulting hash is: ${toHex(hashPow({blindedAddressDataHash:BigInt(burnAccount.blindedAddressDataHash), powNonce:BigInt(burnAccount.powNonce)}), {size:32})}`)}
+    if (isValidPow === false) { throw new Error(`PoW incorrect. Difficulty is ${toHex(difficulty, { size: 32 })} but resulting hash is: ${toHex(hashPow({ blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash), powNonce: BigInt(burnAccount.powNonce) }), { size: 32 })}`) }
     return await burn(
         burnAccount.burnAddress,
         amount,
@@ -115,8 +115,8 @@ export async function superSafeBurn(
     // checks
     const blindedAddressDataHash = hashBlindedAddressData({ spendingPubKeyX: burnAccount.spendingPubKeyX, viewingKey: BigInt(burnAccount.viewingKey), chainId: BigInt(burnAccount.chainId) })
     const burnAddress = getBurnAddressSafe({ blindedAddressDataHash: blindedAddressDataHash, powNonce: BigInt(burnAccount.powNonce), difficulty: difficulty })
-    if(burnAddress !== getAddress(burnAccount.burnAddress)) {throw new Error(`Burn account address mismatch, recreated burn address as: ${burnAddress} but burnAccount has it's burn address set as ${getAddress(burnAccount.burnAddress)}`)}
-    
+    if (burnAddress !== getAddress(burnAccount.burnAddress)) { throw new Error(`Burn account address mismatch, recreated burn address as: ${burnAddress} but burnAccount has it's burn address set as ${getAddress(burnAccount.burnAddress)}`) }
+
     // burn
     return safeBurn(
         burnAccount,
@@ -243,12 +243,14 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
         _signatureInputs,
     ] as const
     const accountAddress = wallet.account?.address as Address
-    // estimation is some time so high it goes over the per tx limit on sepolia
-    // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
-    const gas = _totalMintedLeafs.length > 32
-        ? GAS_LIMIT_TX
-        : (await wormholeTokenContract.estimateGas.reMint(reMintArgs, { account: accountAddress })) * GAS_ESTIMATE_BUFFER_PERCENT / 100n
-    return await wormholeTokenContract.write.reMint(reMintArgs, { account: accountAddress, gas, chain: wallet.chain })
+    const gas = await estimateGasCapped(() =>
+        wormholeTokenContract.estimateGas.reMint(reMintArgs, { account: accountAddress, gas: GAS_LIMIT_TX })
+    )
+    return await wormholeTokenContract.write.reMint(reMintArgs, {
+        account: accountAddress,
+        gas: gas,
+        chain: wallet.chain
+    })
 }
 
 /**
@@ -299,14 +301,27 @@ export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, ac
         _feeData
     ] as const
     const relayerAccount = account ?? wallet.account?.address ?? (await wallet.getAddresses())[0]
-    // estimation is some time so high it goes over the per tx limit on sepolia
-    // to not scare users. we wont set the gas limit super high when the amount of _totalMintedLeafs is only 2 (circuit size)
-    const gas = _totalMintedLeafs.length > 32
-        ? GAS_LIMIT_TX
-        : (await wormholeTokenContract.estimateGas.reMintRelayer(reMintRelayerArgs, { account: relayerAccount })) * GAS_ESTIMATE_BUFFER_PERCENT / 100n
+    const gas = await estimateGasCapped(() =>
+        wormholeTokenContract.estimateGas.reMintRelayer(reMintRelayerArgs, { account: relayerAccount, gas: GAS_LIMIT_TX })
+    )
     return await wormholeTokenContract.write.reMintRelayer(reMintRelayerArgs, {
         account: relayerAccount,
-        gas,
-        chain:wallet.chain
+        gas: gas,
+        chain: wallet.chain
     })
+}
+
+// estimateGas can over-shoot on the heavy ZK verifier path and exceed the EIP-7825 per-tx cap,
+// in which case the node rejects the estimation itself. Fall back to the cap — if the real
+// execution cost fits, the tx lands; if it doesn't, it'll OOG on-chain like any other over-budget tx.
+async function estimateGasCapped(estimate: () => Promise<bigint>): Promise<bigint> {
+    try {
+        const estimated = await estimate()
+        const buffered = estimated * GAS_ESTIMATE_BUFFER_PERCENT / 100n
+        return buffered < GAS_LIMIT_TX ? buffered : GAS_LIMIT_TX
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (message.includes("cap")) return GAS_LIMIT_TX
+        throw err
+    }
 }

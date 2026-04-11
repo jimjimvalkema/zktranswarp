@@ -197,6 +197,13 @@ export type BurnAccountImportable = DerivedBurnAccountImportable | UnknownBurnAc
 export type BurnAccountRecoverable = DerivedBurnAccountRecoverable | UnknownBurnAccountRecoverable;
 export type AnyBurnAccount = BurnAccount | BurnAccountImportable | BurnAccountRecoverable;
 
+// default objects
+export const EMPTY_SYNC_FIELDS = BurnAccountSyncFieldsSchema.parse(
+    Object.fromEntries(
+        Object.keys(BurnAccountSyncFieldsSchema.shape).map((k) => [k, "0x0"])
+    )
+);
+
 
 // --- type guards -------------------------------------------------------------
 

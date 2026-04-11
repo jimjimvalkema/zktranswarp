@@ -16,15 +16,24 @@ import {
     RE_MINT_LIMIT,
     MAX_TREE_DEPTH,
 } from "../src/constants.ts";
-import { getSyncedMerkleTree } from "../src/syncing.ts";
+import { getSyncedMerkleTree, syncBurnAccount } from "../src/syncing.ts";
+import type { BurnAccount } from "../src/types.ts";
+import { BurnWallet } from "../src/BurnWallet.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
-import { padHex, toHex, type PublicClient } from "viem";
+import { getAddress, padHex, toHex, type PublicClient } from "viem";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { getBurnState } from "../src/utils.ts";
 
-describe("getSyncedMerkleTree", async function () {
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PRE_MADE_BURN_ACCOUNTS = await readFile(join(__dirname, "./data/privateDataAlice.json"), { encoding: "utf-8" });
+
+describe("syncing", async function () {
     const { viem } = await network.connect();
     const publicClient = await viem.getPublicClient() as PublicClient;
     let wormholeToken: ContractReturnType<typeof WormholeTokenContractName>;
-    const [deployer, alice, bob, carol] = await viem.getWalletClients();
+    const [deployer, alice, bob, carol, relayer, feeEstimator] = await viem.getWalletClients()
 
     beforeEach(async function () {
         const poseidon2Create2Salt = padHex("0x00", { size: 32 });
@@ -180,9 +189,111 @@ describe("getSyncedMerkleTree", async function () {
     it("sync when there are no leafs in the tree yet", async function () {
         const expectedRoot = await wormholeToken.read.root();
         const fullySynced = await getSyncedMerkleTree(wormholeToken.address, publicClient);
-        console.log({expectedRoot, fullySyncedRoot: fullySynced.tree.root})
         // TODO make pr where leanIMT does `get root() ?? 0n` by it self
         // instead of doing it every call site where `fullySynced.tree.root`
         assert.equal(fullySynced.tree.root ?? 0n, expectedRoot);
+    });
+
+    // --- syncBurnAccount -----------------------------------------------------
+
+    async function makeAliceBurnAccount() {
+        const chainId = await publicClient.getChainId();
+        const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] });
+        // import pre-generated burn accounts so we skip PoW
+        await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken.address);
+        const aliceBurnAccount = await aliceBurnWallet.createBurnAccount(wormholeToken.address, { viewingKeyIndex: 0 });
+        return { aliceBurnWallet, aliceBurnAccount, chainId };
+    }
+
+    async function burnTo(burnAddress: `0x${string}`, amount: bigint) {
+        const tx = await wormholeToken.write.transfer([burnAddress, amount]);
+        const receipt = await publicClient.getTransactionReceipt({ hash: tx });
+        return receipt.blockNumber;
+    }
+
+    it("syncBurnAccount: totalBurned = 0 when nothing has been burned", async function () {
+        const { aliceBurnAccount, chainId } = await makeAliceBurnAccount();
+
+        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient);
+        const state = getBurnState(synced, chainId, wormholeToken.address);
+
+        assert.equal(BigInt(state.totalBurned), 0n);
+        assert.equal(BigInt(state.totalMinted), 0n);
+        assert.equal(BigInt(state.accountNonce), 0n);
+        assert.equal(BigInt(state.spendableBalance), 0n);
+    });
+
+    it("syncBurnAccount: syncs totalBurned at the current head by default", async function () {
+       const { aliceBurnAccount, chainId } = await makeAliceBurnAccount();
+
+        await burnTo(aliceBurnAccount.burnAddress, 100n);
+        await burnTo(aliceBurnAccount.burnAddress, 200n);
+        await burnTo(aliceBurnAccount.burnAddress, 300n);
+
+        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient);
+        const state = getBurnState(synced, chainId, wormholeToken.address);
+
+        assert.equal(BigInt(state.totalBurned), 600n);
+        assert.equal(BigInt(state.spendableBalance), 600n);
+    });
+
+    it("syncBurnAccount: syncs to an exact past block", async function () {
+       const { aliceBurnAccount, chainId } = await makeAliceBurnAccount();
+
+        await burnTo(aliceBurnAccount.burnAddress, 100n);
+        const snapshotBlock = await burnTo(aliceBurnAccount.burnAddress, 200n);
+        // activity past the snapshot — must be excluded
+        await burnTo(aliceBurnAccount.burnAddress, 300n);
+        await burnTo(aliceBurnAccount.burnAddress, 400n);
+
+        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient, {
+            syncTillBlock: snapshotBlock,
+        });
+        const state = getBurnState(synced, chainId, wormholeToken.address);
+
+        assert.equal(BigInt(state.totalBurned), 300n);
+        assert.equal(BigInt(state.lastSyncedBlock), snapshotBlock);
+    });
+
+    it("syncBurnAccount: syncs to a block before any burn happened", async function () {
+       const { aliceBurnAccount, chainId } = await makeAliceBurnAccount();
+
+        // empty-contract block — the burn account should look untouched here
+        const preBurnBlock = await publicClient.getBlockNumber();
+
+        await burnTo(aliceBurnAccount.burnAddress, 100n);
+        await burnTo(aliceBurnAccount.burnAddress, 200n);
+
+        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient, {
+            syncTillBlock: preBurnBlock,
+        });
+        const state = getBurnState(synced, chainId, wormholeToken.address);
+
+        assert.equal(BigInt(state.totalBurned), 0n);
+        assert.equal(BigInt(state.lastSyncedBlock), preBurnBlock);
+    });
+
+    it("syncBurnAccount: rewinds a previously-synced account to an earlier block", async function () {
+       const { aliceBurnAccount, chainId } = await makeAliceBurnAccount();
+
+        await burnTo(aliceBurnAccount.burnAddress, 100n);
+        const snapshotBlock = await burnTo(aliceBurnAccount.burnAddress, 200n);
+        await burnTo(aliceBurnAccount.burnAddress, 300n);
+        await burnTo(aliceBurnAccount.burnAddress, 400n);
+
+        // first sync all the way forward
+        const fullySynced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient);
+        const syncedState = getBurnState(fullySynced, chainId, wormholeToken.address);
+        assert.equal(BigInt(syncedState.totalBurned), 1000n);
+
+        // then re-sync the same account back to an earlier block
+        const rewoundAccount = await syncBurnAccount(fullySynced, wormholeToken.address, publicClient, {
+            syncTillBlock: snapshotBlock,
+        });
+        const rewoundState = getBurnState(rewoundAccount, chainId, wormholeToken.address);
+
+        assert.equal(BigInt(rewoundState.totalBurned), 300n);
+        assert.equal(BigInt(rewoundState.lastSyncedBlock), snapshotBlock);
+        assert.equal(BigInt(rewoundState.accountNonce), 0n);
     });
 });

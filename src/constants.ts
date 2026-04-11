@@ -52,7 +52,7 @@ export const FIELD_LIMIT = 21888242871839275222246405745257275088548364400416034
 export const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n
 
 // estimation is some time so high it goes over the per tx limit on sepolia
-export const GAS_LIMIT_TX = 16000000n
+export const GAS_LIMIT_TX = 2n**24n
 
 // Multiplier (as percentage) on top of estimateGas to account for the merkle tree depth
 // increasing by 1 between estimation and mining (e.g. another insert lands first).

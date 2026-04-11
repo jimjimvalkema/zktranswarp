@@ -1,7 +1,7 @@
 // PrivateWallet is a wrapper that exposes some of viem's WalletClient functions and requires them to only ever use one ethAccount
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
-import { ethAddress, hashMessage, padHex, recoverMessageAddress, toHex } from "viem";
+import { ethAddress, getAddress, hashMessage, padHex, recoverMessageAddress, toHex } from "viem";
 import type { BurnAccount, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData, UnknownBurnAccountRecoverable, UnknownBurnAccountImportable, DerivedBurnAccountImportable } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, isValidPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
@@ -77,6 +77,7 @@ export class BurnViewKeyManager {
 
     // prompts user to sign to create viewing keys and also store pubKey of eth account
     async #connect(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE) {
+        ethAccount = getAddress(ethAccount)
         this.privateData.burnAccounts[ethAccount] ??= { detViewKeyRoot: undefined, pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {} };
         if (this.privateData.burnAccounts[ethAccount].pubKey && this.privateData.burnAccounts[ethAccount].detViewKeyRoot) {
             return { viewKeyRoot: this.privateData.burnAccounts[ethAccount].detViewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount].pubKey }
@@ -87,6 +88,7 @@ export class BurnViewKeyManager {
     }
 
     async #storeSignIn(signature: Hex, message: string, ethAccount: Address) {
+        ethAccount = getAddress(ethAccount)
         const hash = hashMessage(message);
         const viewKeyRoot = toHex(getViewingKey({ signature: signature }));
         const { pubKeyX, pubKeyY } = await extractPubKeyFromSig({ hash, signature })
@@ -100,8 +102,8 @@ export class BurnViewKeyManager {
     async connectPreSigned(wallet:WalletClient,signature: Hex, message: string) {
         if (wallet.account === undefined) throw new Error(viemAccountNotSetErr)
         const recovered = await recoverMessageAddress({ message, signature })
-        const ethAccount = wallet.account.address
-        if (recovered.toLowerCase() !== ethAccount.toLowerCase()) {
+        const ethAccount = getAddress(wallet.account.address)
+        if (getAddress(recovered) !== ethAccount) {
             throw new Error(`connectPreSigned: signature does not match ethAccount. Recovered ${recovered}, expected ${ethAccount}`)
         }
         this.viemWallet = wallet
@@ -116,12 +118,14 @@ export class BurnViewKeyManager {
     }
 
     #createBurnAccountsKeysHex({ chainIdHex, difficultyHex, ethAccount }: { chainIdHex: Hex, difficultyHex: Hex, ethAccount: Address }) {
+        ethAccount = getAddress(ethAccount)
         this.privateData.burnAccounts[ethAccount] ??= { pubKey: undefined, detViewKeyCounter: 0, burnAccounts: {}, detViewKeyRoot: undefined };
         this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex] ??= {};
         this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyHex] ??= { derivedBurnAccounts: [], unknownBurnAccounts: {} };
     }
 
     #getBurnAccount(ethAccount: Address, chainId: number, difficulty: Hex, viewingKeyIndex: number, burnAddress: Address) {
+        ethAccount = getAddress(ethAccount)
         const difficultyPadded = padHex(difficulty, { size: 32 })
         const chainIdHex = toHex(chainId)
         if (viewingKeyIndex) {
@@ -139,11 +143,12 @@ export class BurnViewKeyManager {
         // extra safety, if burnAccount.difficulty is not padded this wont pad it
         // but key used for storage is because if it ins't duplicate entries can be created
         const difficultyPadded = padHex(burnAccount.difficulty, { size: 32 })
-        this.#createBurnAccountsKeysHex({ chainIdHex: burnAccount.chainId, difficultyHex: difficultyPadded, ethAccount: burnAccount.ethAccount })
+        const ethAccount = getAddress(burnAccount.ethAccount)
+        this.#createBurnAccountsKeysHex({ chainIdHex: burnAccount.chainId, difficultyHex: difficultyPadded, ethAccount })
         if (isDerivedBurnAccount(burnAccount)) {
-            this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[burnAccount.chainId][difficultyPadded].derivedBurnAccounts[burnAccount.viewingKeyIndex] = burnAccount
+            this.privateData.burnAccounts[ethAccount].burnAccounts[burnAccount.chainId][difficultyPadded].derivedBurnAccounts[burnAccount.viewingKeyIndex] = burnAccount
         } else {
-            this.privateData.burnAccounts[burnAccount.ethAccount].burnAccounts[burnAccount.chainId][difficultyPadded].unknownBurnAccounts[burnAccount.burnAddress] = burnAccount
+            this.privateData.burnAccounts[ethAccount].burnAccounts[burnAccount.chainId][difficultyPadded].unknownBurnAccounts[getAddress(burnAccount.burnAddress)] = burnAccount
         }
     }
 
@@ -152,7 +157,7 @@ export class BurnViewKeyManager {
         walletClient ??= this.viemWallet
         this.viemWallet = walletClient
         if (walletClient.account === undefined) throw new Error(viemAccountNotSetErr)
-        return await this.#connect(walletClient.account.address as Address)
+        return await this.#connect(getAddress(walletClient.account.address))
     }
 
     /**
@@ -160,6 +165,7 @@ export class BurnViewKeyManager {
      * @returns The deterministic view key root.
      */
     async getDeterministicViewKeyRoot(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE): Promise<Hex> {
+        ethAccount = getAddress(ethAccount)
         if (this.privateData.burnAccounts[ethAccount] === undefined || this.privateData.burnAccounts[ethAccount].detViewKeyRoot === undefined) {
             await this.#connect(ethAccount, message)
         }
@@ -171,6 +177,7 @@ export class BurnViewKeyManager {
      * @returns The wallet's spending public key as `{ x, y }`.
      */
     async getPubKey(ethAccount: Address, message = VIEWING_KEY_SIG_MESSAGE) {
+        ethAccount = getAddress(ethAccount)
         if (this.privateData.burnAccounts[ethAccount] === undefined || this.privateData.burnAccounts[ethAccount].pubKey === undefined) {
             await this.#connect(ethAccount, message)
         }
@@ -220,7 +227,8 @@ export class BurnViewKeyManager {
         { isDeterministic, spendingPubKeyX, signingEthAccount, powNonce, viewingKey, viewingKeyIndex, async = false, viewKeyMessage = VIEWING_KEY_SIG_MESSAGE }:
             { isDeterministic?: boolean, spendingPubKeyX?: Hex, signingEthAccount?: Address, powNonce?: bigint, viewingKey?: bigint, viewingKeyIndex?: number, chainId?: number, async?: boolean, viewKeyMessage?: string } = {}
     ) {
-        signingEthAccount ??= this.viemWallet.account?.address as Address
+        signingEthAccount = getAddress(signingEthAccount ?? this.viemWallet.account!.address)
+        this.#createBurnAccountsKeys({ chainId, difficulty, ethAccount: signingEthAccount })
         if (viewingKeyIndex === undefined) {
             viewingKeyIndex = this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter
             this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter += 1
@@ -228,7 +236,6 @@ export class BurnViewKeyManager {
 
         // TODO technically, if a PowNonce is provided, could not be deterministic, But we don't check for that here since it takes too long
         isDeterministic ??= viewingKey === undefined && powNonce === undefined;
-        this.#createBurnAccountsKeys({ chainId, difficulty, ethAccount: signingEthAccount })
         if (isDeterministic) {
             const preCachedBurnAccounts = getDeterministicBurnAccounts(this, signingEthAccount, chainId, difficulty)
             if (preCachedBurnAccounts[viewingKeyIndex]) {
@@ -298,7 +305,7 @@ export class BurnViewKeyManager {
         { signingEthAccount, startingViewKeyIndex, async = false }:
             { signingEthAccount?: Address, startingViewKeyIndex?: number, async?: boolean } = {}
     ) {
-        signingEthAccount ??= this.viemWallet.account?.address as Address
+        signingEthAccount = getAddress(signingEthAccount ?? this.viemWallet.account!.address)
         this.#createBurnAccountsKeys({ chainId, ethAccount: signingEthAccount, difficulty })
         startingViewKeyIndex ??= this.privateData.burnAccounts[signingEthAccount].detViewKeyCounter
         const burnAccountsPromises = new Array(amountOfBurnAccounts).fill(0).map((v, i) =>
@@ -329,6 +336,7 @@ export class BurnViewKeyManager {
     exportBurnAccounts(
         ethAccount: Address, chainId: number, difficulty: Hex, { paranoidMode = false } = {}
     ): { derived: (DerivedBurnAccountRecoverable | DerivedBurnAccountImportable)[], unknown: (UnknownBurnAccountRecoverable | UnknownBurnAccountImportable)[] } {
+        ethAccount = getAddress(ethAccount)
         const difficultyPadded = padHex(difficulty, { size: 32 });
         const chainIdHex = toHex(chainId)
         const derived = this.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyPadded].derivedBurnAccounts.map(
@@ -358,7 +366,8 @@ export class BurnViewKeyManager {
     exportViewKeyData(paranoidMode: boolean): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>;
     exportViewKeyData(paranoidMode = false): ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable> {
         const burnAccounts: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>["burnAccounts"] = {};
-        for (const ethAccount of Object.keys(this.privateData.burnAccounts) as Address[]) {
+        for (const rawEthAccount of Object.keys(this.privateData.burnAccounts) as Address[]) {
+            const ethAccount = getAddress(rawEthAccount)
             const ethData = this.privateData.burnAccounts[ethAccount];
             burnAccounts[ethAccount] = { detViewKeyCounter: ethData.detViewKeyCounter, burnAccounts: {} };
             for (const chainId of Object.keys(ethData.burnAccounts) as Hex[]) {
@@ -423,19 +432,24 @@ export class BurnViewKeyManager {
 
         await Promise.all(accountsToImport.map((b) => this.importBurnAccount(b, tokenAddress, archiveNode, { forceReSign, forceReHashViewKey, forcePow, async, fullNode })));
 
-        const ethAccountsToImport = onlySignInWith
-            ? Object.keys(importedViewKeyData.burnAccounts).filter((a) => a === onlySignInWith)
-            : Object.keys(importedViewKeyData.burnAccounts);
+        const normalizedOnlySignInWith = onlySignInWith ? getAddress(onlySignInWith) : undefined
+        const ethAccountsToImport = (Object.keys(importedViewKeyData.burnAccounts) as Address[])
+            .map((a) => getAddress(a))
+            .filter((a) => normalizedOnlySignInWith === undefined || a === normalizedOnlySignInWith)
         for (const ethAccount of ethAccountsToImport) {
+            // find the source entry by case-insensitive match in case the imported JSON used a different casing
+            const sourceKey = (Object.keys(importedViewKeyData.burnAccounts) as Address[])
+                .find((k) => getAddress(k) === ethAccount) as Address
+            const source = importedViewKeyData.burnAccounts[sourceKey]
             // only if the count is higher update it
             this.privateData.burnAccounts[ethAccount] ??= {
                 detViewKeyRoot: undefined,
                 pubKey: undefined,
-                detViewKeyCounter: importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter,
+                detViewKeyCounter: source.detViewKeyCounter,
                 burnAccounts: {}
             }
-            if (this.privateData.burnAccounts[ethAccount].detViewKeyCounter < importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter) {
-                this.privateData.burnAccounts[ethAccount].detViewKeyCounter = importedViewKeyData.burnAccounts[ethAccount as Address].detViewKeyCounter
+            if (this.privateData.burnAccounts[ethAccount].detViewKeyCounter < source.detViewKeyCounter) {
+                this.privateData.burnAccounts[ethAccount].detViewKeyCounter = source.detViewKeyCounter
             }
         }
     }
@@ -519,7 +533,7 @@ export class BurnViewKeyManager {
                     }
                 }
             }
-            await syncBurnAccount(reCreatedBurnAccount, tokenAddress, archiveNode, { fullNode, maxNonce })
+            await syncBurnAccount(reCreatedBurnAccount, tokenAddress, archiveNode, { maxNonce })
         }
     }
 }

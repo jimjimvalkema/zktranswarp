@@ -88,10 +88,11 @@ export function getSpendableBalanceProof(
 }
 
 export async function toSpendableBurnAccounts(burnAccounts: SyncedBurnAccount[], tokenAddress: Address, allowedChainIds: Hex[], selectBurnAddresses: Address[]) {
+    tokenAddress = getAddress(tokenAddress)
     const entries: SpendableBurnAccount[] = []
     selectBurnAddresses = selectBurnAddresses.map((a) => getAddress(a))
     for (const burnAccount of burnAccounts) {
-        if (!selectBurnAddresses.includes(burnAccount.burnAddress)) continue
+        if (!selectBurnAddresses.includes(getAddress(burnAccount.burnAddress))) continue
         for (const [chainId, statePerContract] of Object.entries(burnAccount.syncData)) {
             // likely never happens, but in theory an burn account can have an balance on chainId that is not allowed, that balance just can never be spent
             if (allowedChainIds.includes(chainId as Hex) === false) continue
@@ -182,6 +183,7 @@ export function selectSmallFirst(
 export function getHashedInputs(
     burnAccount: SyncedBurnAccount, claimAmount: bigint, tokenAddress: Address, syncedTree: PreSyncedTree, chainId: Hex, maxTreeDepth: number
 ) {
+    tokenAddress = getAddress(tokenAddress)
     const syncFields = burnAccount.syncData[chainId][tokenAddress]
 
     // --- inclusion proof ---
@@ -265,6 +267,8 @@ export async function selectBurnAccountsForClaim(
     circuitSize?: number,
     burnAddresses?: Address[],
 ) {
+    tokenAddress = getAddress(tokenAddress)
+    signingEthAccount = getAddress(signingEthAccount)
     // TODO should be a minimum powDifficulty
     const allBurnAccounts = getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts: [signingEthAccount], chainIds: [chainId], difficulties: [BigInt(powDifficulty)] }) as SyncedBurnAccount[]
     burnAddresses ??= allBurnAccounts.map((b) => b.burnAddress)
@@ -287,6 +291,7 @@ export function getPrivInputs(
     { circuitSizes, signatureData, burnAccountsProofs, circuitSize, maxTreeDepth, tokenAddress }:
         { circuitSizes: number[], signatureData: SignatureData, burnAccountsProofs: (BurnAccountProof | FakeBurnAccountProof)[], circuitSize?: number, maxTreeDepth: number, tokenAddress: Address }) {
 
+    tokenAddress = getAddress(tokenAddress)
     const burn_address_private_proof_data: BurnDataPrivate[] = [];
     circuitSize ??= getCircuitSize(burnAccountsProofs.length, circuitSizes)
     let amountOfRealBurnAddresses = 0;
@@ -458,6 +463,8 @@ export async function createRelayerInputs(
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
 ): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
     //------- set defaults ----------------
+    tokenAddress = getAddress(tokenAddress)
+    signingEthAccount = getAddress(signingEthAccount)
     fullNode ??= archiveNode
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
     circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
@@ -495,7 +502,6 @@ export async function createRelayerInputs(
         tokenAddress,
         archiveNode,
         {
-            fullNode,
             burnAddressesToSync: burnAddresses, //@notice, only syncs these addresses!
             //ethAccounts: [ethAccount]         // we already know which burn addresses, we don't need to filter based on signer account
         }

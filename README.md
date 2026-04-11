@@ -156,10 +156,10 @@ yarn vite website;
 ┌──────────────────────────────────────────┬───────┬─────────┬─────────┬─────────┐
 │ (index)                                  │ count │ min     │ max     │ avg     │
 ├──────────────────────────────────────────┼───────┼─────────┼─────────┼─────────┤
-│ transfer (no merkle insert)              │ 1     │ 27300   │ 27300   │ 27300   │
-│ transfer (with merkle insert)            │ 1     │ 168510  │ 168510  │ 168510  │
-│ superSafeBurn (transfer to burn address) │ 18    │ 158668  │ 194914  │ 178097  │
-│ reMint (selfRelay, size 3)               │ 8     │ 4400951 │ 4491110 │ 4432064 │
+│ transfer (no merkle insert)              │ 1     │ 27374   │ 27374   │ 27374   │
+│ transfer (with merkle insert)            │ 1     │ 168601  │ 168601  │ 168601  │
+│ superSafeBurn (transfer to burn address) │ 18    │ 158759  │ 195005  │ 178188  │
+│ reMint (selfRelay, size 3)               │ 8     │ 4403909 │ 4493684 │ 4434754 │
 └──────────────────────────────────────────┴───────┴─────────┴─────────┴─────────┘
 ```
 

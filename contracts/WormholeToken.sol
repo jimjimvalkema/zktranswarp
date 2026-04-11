@@ -396,7 +396,8 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712, ReentrancyGuard {
         uint256[] memory _nullifiers,       // nullifies the previous account_note.  hash(prev_account_nonce, viewing_key)
         bytes calldata _snarkProof,
         SignatureInputs calldata _signatureInputs
-    ) public nonReentrant{
+    ) public payable nonReentrant{
+        require(msg.value == _signatureInputs.callValue);
         bytes32 _signatureHash = _hashSignatureInputs(_signatureInputs);
         _verifyReMint(_root, _chainId, _signatureInputs.amountToReMint, _signatureHash, _totalMintedLeafs, _nullifiers, _signatureInputs.encryptedTotalMinted, _snarkProof);
         
@@ -424,7 +425,8 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712, ReentrancyGuard {
         bytes calldata _snarkProof,
         SignatureInputs calldata _signatureInputs,
         FeeData calldata _feeData
-    ) public nonReentrant {
+    ) public payable nonReentrant {
+        require(msg.value == _signatureInputs.callValue);
         (uint256 _fee, uint256 _refundAmount) = _calculateFee(_feeData, _signatureInputs.amountToReMint);
         bytes32 _signatureHash = _hashSignatureInputsRelayer(_signatureInputs, _feeData);
         _verifyReMint(_root, _chainId, _signatureInputs.amountToReMint, _signatureHash, _totalMintedLeafs, _nullifiers, _signatureInputs.encryptedTotalMinted, _snarkProof);

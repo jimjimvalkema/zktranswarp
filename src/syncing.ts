@@ -162,16 +162,21 @@ export async function decryptTotalMinted({ viewingKey, totalMintedEncrypted }: {
 }
 
 
-
-//you can event scan or just iter over the nullifier mapping!
-// TODO add actual balance
-export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Address, archiveNode: PublicClient, { fullNode, maxNonce, chainId }: { fullNode?: PublicClient, maxNonce?: bigint, chainId?: Hex } = {}
+/**
+ * @TODO make version that works without archive node. Although that one is clumsy to use, it might be use full for user to be able to sync without archive node
+ * @param burnAccount 
+ * @param tokenAddress 
+ * @param archiveNode 
+ * @param param3 
+ * @returns 
+ */
+export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Address, archiveNode: PublicClient, {syncTillBlock, maxNonce, chainId }: {syncTillBlock?:bigint, maxNonce?: bigint, chainId?: Hex } = {}
 ): Promise<SyncedBurnAccount> {
-    fullNode ??= archiveNode;
-    chainId ??= toHex(await fullNode.getChainId())
-    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: archiveNode })
+    tokenAddress = getAddress(tokenAddress)
+    chainId ??= toHex(await archiveNode.getChainId())
+    syncTillBlock ??= await archiveNode.getBlockNumber()
+    const wormholeTokenArchive = getWormholeTokenContract(tokenAddress, { public: archiveNode })
 
-    const blockNumberBeforeSync = await fullNode.getBlockNumber()
     const viewingKey = BigInt(burnAccount.viewingKey)
     const prevSyncFields = burnAccount.syncData?.[chainId]?.[tokenAddress]
     const initialAccountNonce = BigInt(prevSyncFields?.accountNonce ?? 0n)
@@ -182,11 +187,12 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
     let lastSpendBlockNum: bigint | null = null
     let lastNullifier: bigint | null = null;
 
-    const totalBurned = await wormholeTokenFull.read.balanceOf([burnAccount.burnAddress]);
+    const totalBurned = await wormholeTokenArchive.read.balanceOf([burnAccount.burnAddress], {blockNumber:syncTillBlock});
+    // nothing burned = nothing spent = nothing to sync
     if (totalBurned !== 0n) {
-        while (isNullified || isNullified === null && (maxNonce === undefined || accountNonce < maxNonce)) {
+        while ((isNullified || isNullified === null) && (maxNonce === undefined || accountNonce < maxNonce)) {
             const nullifier = hashNullifier({ accountNonce: accountNonce, viewingKey: viewingKey })
-            const nullifiedAtBlock = await wormholeTokenFull.read.nullifiers([nullifier])
+            const nullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([nullifier], {blockNumber:syncTillBlock})
             // if not nullified
             if (nullifiedAtBlock === 0n) {
                 // we are at the first iteration and accountNonce is not at 0. 
@@ -195,7 +201,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
                 if (wasPreviouslySynced) {
                     const prevNullifier = hashNullifier({ accountNonce: accountNonce - 1n, viewingKey: viewingKey })
                     // another rpc call but trust me i got stuck on this stupid ah bug for hours and it took claude a while to find it as well 
-                    const prevNullifiedAtBlock = await wormholeTokenFull.read.nullifiers([prevNullifier])
+                    const prevNullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([prevNullifier], {blockNumber:syncTillBlock})
                     if (prevNullifiedAtBlock === 0n) {
                         throw new Error(`
                         provided burnAccount has an invalid accountNonce. Account nonce was set to a non 0 number but it's previous nonce was not nullified
@@ -240,7 +246,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
     const syncedBurnAccount = burnAccount as SyncedBurnAccount
     syncedBurnAccount.syncData ??= {}
     syncedBurnAccount.syncData[chainId] ??= {}
-    const lastSyncedBlock = toHex(blockNumberBeforeSync)
+    const lastSyncedBlock = toHex(syncTillBlock)
     syncedBurnAccount.syncData[chainId][tokenAddress] = {
         totalMinted: toHex(totalMinted),
         accountNonce: toHex(accountNonce),
@@ -255,6 +261,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
 }
 
 /**
+ * @TODO return at what block it's synced
  * defaults to syncing all burn accounts
  * @notice sync concurrently all accounts, this might overwhelm rpcs
  * @notice When using UnknownBurnAccount this becomes O(n × m). It uses `BurnViewKeyManager.updateBurnAccount` which will loop over all unknown burnAccounts to find which one to update
@@ -266,12 +273,12 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
  */
 export async function syncMultipleBurnAccounts(
     burnViewKeyManager: BurnViewKeyManager, tokenAddress: Address, archiveNode: PublicClient,
-    { burnAddressesToSync, ethAccounts, fullNode, maxNonce, chainId }: { fullNode?: PublicClient, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex }) {
+    {syncTillBlock, burnAddressesToSync, ethAccounts, maxNonce, chainId }: {syncTillBlock?:bigint, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex }={}) {
     const allBurnAccounts = getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts })
     burnAddressesToSync = burnAddressesToSync ? burnAddressesToSync.map((a) => getAddress(a)) : allBurnAccounts.map((v) => getAddress(v.burnAddress))
     const syncedBurnAccounts = await Promise.all(allBurnAccounts.map((burnAccount) => {
         if (burnAddressesToSync.includes(getAddress(burnAccount.burnAddress))) {
-            return syncBurnAccount(burnAccount, tokenAddress, archiveNode, { fullNode, maxNonce, chainId })
+            return syncBurnAccount(burnAccount, tokenAddress, archiveNode, { maxNonce, chainId, syncTillBlock})
         } else {
             return burnAccount
         }
@@ -279,13 +286,3 @@ export async function syncMultipleBurnAccounts(
     await Promise.all(syncedBurnAccounts.map((burnAccount) => burnViewKeyManager.updateBurnAccount(burnAccount)))
     return burnViewKeyManager
 }
-
-// export async function isSyncedPrivateWallet({ BurnViewKeyManager, wormholeToken }: { BurnViewKeyManager: SyncedPrivateWallet | UnsyncedPrivateWallet, wormholeToken: WormholeToken | WormholeTokenTest }) {
-//     if ("accountNonce" in BurnViewKeyManager) {
-//         const nextNullifier = hashNullifier({ accountNonce: (BurnViewKeyManager as SyncedPrivateWallet).accountNonce, viewingKey: BurnViewKeyManager.viewingKey });
-//         const res = await wormholeToken.read.nullifiers([nextNullifier]);
-//         return !Boolean(res); //0n === not spend, any other amount = spend
-//     } else {
-//         return false
-//     }
-// }

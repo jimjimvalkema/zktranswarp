@@ -1,14 +1,16 @@
-import { bytesToHex, getContract, hexToBytes, padHex, toHex, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { bytesToHex, getAddress, getContract, hexToBytes, padHex, toHex, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type {
     BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken,
     AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable,
     DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, FullViewKeyData, UnknownBurnAccount, ExportedViewKeyData,
     BurnAccountRecoverable,
     WormholeContractConfig,
+    BurnAccountSyncData,
+    BurnAccountSyncFields,
 } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
-import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema, type BurnAccountStorage } from "./schemas.ts";
+import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, EMPTY_SYNC_FIELDS, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema, type BurnAccountStorage } from "./schemas.ts";
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.js"
 import { viemAccountNotSetErr } from "./BurnWallet.ts";
@@ -88,7 +90,7 @@ export function hexToU8AsHexLen64(hex: Hex): U8sAsHexArrLen64 {
 
 // ------ wallet utils ------
 function filterBurnAccounts(burnAccountsStorage: BurnAccountStorage, selectedDifficulties?: Hex[], selectedChainIds?: Hex[], ethAccounts?: Address[], detBurnAccount = true, nonDetBurnAccounts = true): BurnAccount[] {
-    ethAccounts ??= Object.keys(burnAccountsStorage) as Address[]
+    ethAccounts = ethAccounts ? ethAccounts.map((a) => getAddress(a)) : Object.keys(burnAccountsStorage).map((a) => getAddress(a as Address))
     selectedChainIds ??= ethAccounts.flatMap((addr) => Object.keys(burnAccountsStorage[addr].burnAccounts)) as Hex[]
 
     let burnAccounts: BurnAccount[] = []
@@ -150,6 +152,7 @@ export function getAllBurnAccounts(privateData: FullViewKeyData,
 export function getDeterministicBurnAccounts(
     burnWallet: BurnViewKeyManager, ethAccount: Address, chainId: number, difficulty: Hex
 ): BurnAccount[] {
+    ethAccount = getAddress(ethAccount)
     const difficultyPadded = padHex(difficulty, { size: 32 })
     const chainIdHex = toHex(chainId)
     return burnWallet.privateData.burnAccounts[ethAccount].burnAccounts[chainIdHex][difficultyPadded].derivedBurnAccounts
@@ -292,4 +295,10 @@ export async function signViewKeyMessage(wallet:WalletClient, ethAccount?:Addres
     ethAccount = wallet.account.address
     const signature = await wallet.signMessage({ message: message, account: ethAccount })
     return {signature, message}
+}
+
+export function getBurnState(account: SyncedBurnAccount, chainId: number, tokenAddress:Address):BurnAccountSyncFields{
+    tokenAddress = getAddress(tokenAddress)
+    const chainIdHex = toHex(chainId)
+    return account.syncData[chainIdHex]?.[tokenAddress] ?? EMPTY_SYNC_FIELDS
 }

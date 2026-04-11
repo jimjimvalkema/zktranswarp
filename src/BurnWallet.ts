@@ -376,35 +376,34 @@ export class BurnWallet {
 
     async sync(
         tokenAddress: Address,
-        { chainId, deploymentBlock, blocksPerGetLogsReq, burnAddressesToSync, signingEthAccount, maxNonce }:
-            { chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint } = {}) {
+        { syncTillBlock, chainId, deploymentBlock, blocksPerGetLogsReq, burnAddressesToSync, signingEthAccount, maxNonce }:
+            { syncTillBlock?: bigint, chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint } = {}) {
+
+        syncTillBlock ??= await (await this.#getPublicClient({ type: "full", chainId })).getBlockNumber()
         const [syncedTree, syncedBurnAccounts] = await Promise.all([
-            this.syncTree(tokenAddress, { chainId, deploymentBlock, blocksPerGetLogsReq }),
-            this.syncBurnAccounts(tokenAddress, { chainId, burnAddressesToSync, signingEthAccount, maxNonce })
+            this.syncTree(tokenAddress, { syncTillBlock, chainId, deploymentBlock, blocksPerGetLogsReq }),
+            this.syncBurnAccounts(tokenAddress, { syncTillBlock, chainId, burnAddressesToSync, signingEthAccount, maxNonce })
         ])
-        return { syncedTree, syncedBurnAccounts }
+        return { syncedTree, syncedBurnAccounts, syncedTillBlock:syncTillBlock }
     }
 
-    async syncTree(tokenAddress: Address, { chainId, deploymentBlock, blocksPerGetLogsReq }: { chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}) {
+    async syncTree(tokenAddress: Address, { chainId, deploymentBlock, blocksPerGetLogsReq, syncTillBlock }: { syncTillBlock?: bigint, chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}) {
         chainId ??= await this.viemWallet.getChainId()
         const [archiveNode, fullNode, preSyncedTree] = await Promise.all([
             this.#getPublicClient({ type: "archive", chainId }),
             this.#getPublicClient({ type: "full", chainId }),
             this.#getMerkleTree(tokenAddress, chainId),
         ])
-        const syncedTree = await getSyncedMerkleTree(tokenAddress, archiveNode, { fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq })
+        const syncedTree = await getSyncedMerkleTree(tokenAddress, archiveNode, { syncTillBlock, fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq })
         this.#setMerkleTree(syncedTree, tokenAddress, chainId)
         return syncedTree
     }
 
-    async syncBurnAccounts(tokenAddress: Address, { chainId, burnAddressesToSync, signingEthAccount, maxNonce }: { chainId?: number, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint } = {}) {
+    async syncBurnAccounts(tokenAddress: Address, { chainId, burnAddressesToSync, signingEthAccount, maxNonce, syncTillBlock }: { syncTillBlock?: bigint, chainId?: number, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint } = {}) {
         chainId ??= await this.viemWallet.getChainId()
         signingEthAccount ??= await this.defaultSigner()
-        const [archiveNode, fullNode] = await Promise.all([
-            this.#getPublicClient({ type: "archive", chainId }),
-            this.#getPublicClient({ type: "full", chainId }),
-        ])
-        return await syncMultipleBurnAccounts(this.burnViewKeyManager, tokenAddress, archiveNode, { fullNode, burnAddressesToSync, maxNonce, ethAccounts: [signingEthAccount], chainId: toHex(chainId) })
+        const archiveNode = await this.#getPublicClient({ type: "archive", chainId })
+        return await syncMultipleBurnAccounts(this.burnViewKeyManager, tokenAddress, archiveNode, { syncTillBlock, burnAddressesToSync, maxNonce, ethAccounts: [signingEthAccount], chainId: toHex(chainId) })
     }
 
     /**
