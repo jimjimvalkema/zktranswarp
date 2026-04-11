@@ -119,6 +119,9 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712, ReentrancyGuard {
         MAX_TREE_DEPTH = _maxTreeDepth;
         IS_CROSS_CHAIN = _isCrossChain;
         DEPLOYMENT_BLOCK = block.number;
+
+        // prevent un expected behavior when the tree is still empty
+        roots[leanIMTPoseidon2.root(tree)] = true;
     }
 
     function treeSize() public view  returns (uint256) {

@@ -51,7 +51,7 @@
     "@aztec/bb.js": "3.0.0-nightly.20251030-2",
     "@noir-lang/noir_js": "1.0.0-beta.14",
     "@openzeppelin/contracts": "^5.2.0",
-    "@warptoad/gigabridge-js": "0.0.7",
+    "@warptoad/gigabridge-js": "0.0.10",
     "@zk-kit/lean-imt": "2.2.4",
     "@zkpassport/poseidon2": "^0.6.2",
     "argparse": "^2.0.1",

@@ -14,7 +14,7 @@ export const poseidon2IMTHashFunc: LeanIMTHashFunction = (a: bigint, b: bigint) 
 
 export async function getSyncedMerkleTree(
     tokenAddress: Address, archiveNode: PublicClient,
-    { fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq }: { fullNode?: PublicClient, preSyncedTree?: PreSyncedTree, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}
+    { syncTillBlock, fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq }: { syncTillBlock?: bigint, fullNode?: PublicClient, preSyncedTree?: PreSyncedTree, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}
 ) {
     fullNode ??= archiveNode;
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
@@ -23,6 +23,7 @@ export async function getSyncedMerkleTree(
     let firstSyncBlock = deploymentBlock
     let originalStartSyncBlock = deploymentBlock
     let preSyncedLeaves: bigint[] = []
+    const isAlreadySynced: boolean = (syncTillBlock !== undefined && preSyncedTree !== undefined && preSyncedTree.lastSyncedBlock > syncTillBlock)
 
     if (preSyncedTree) {
         // check preSyncedTree 
@@ -32,38 +33,71 @@ export async function getSyncedMerkleTree(
         const neverBeenSynced = preSyncedTree.lastSyncedBlock === preSyncedTree.firstSyncedBlock;
         if (isValidRoot === false && neverBeenSynced === false) { throw new Error(`preSyncedTrees root is not in the "roots" mapping of tree onchain. preSyncedTreeRoot: ${preSyncedTree.tree.root}, lastPreSyncedBlockNumber:${preSyncedTree.lastSyncedBlock}`) }
 
-        // use preSyncedTree data
+        // use preSyncedTree data. lastSyncedBlock was inclusive and so is firstSyncBlock. So +1n
         firstSyncBlock = preSyncedTree.lastSyncedBlock + 1n
         originalStartSyncBlock = preSyncedTree.firstSyncedBlock
-        preSyncedLeaves = preSyncedTree.tree.leaves
+        preSyncedLeaves = preSyncedTree.tree.leaves;
+        // detect if preSyncedTree was synced too far ahead
+        if (isAlreadySynced) {
+
+            // get's last event happened since block: syncTillBlock
+            // get that leaf. And remove all leaves that happened after that leaf
+            const lastLeafAtBlock = await queryEventInChunks({
+                publicClient: archiveNode,
+                contract: wormholeTokenArchive,
+                eventName: "NewLeaf",
+                reverseOrder: true,
+                maxEvents: 1,
+                lastBlock: syncTillBlock,
+                chunkSize: blocksPerGetLogsReq,
+            })
+            if (lastLeafAtBlock[0]) {
+                const lastLeaf = lastLeafAtBlock[0].args.leaf
+                const lastIndex = preSyncedLeaves.lastIndexOf(lastLeaf)
+                preSyncedLeaves = preSyncedLeaves.toSpliced(lastIndex + 1)
+
+            } else {
+                // no leaves
+                preSyncedLeaves = []
+            }
+
+        }
     }
 
     // sync it
-    const timeBefore = Date.now()
-    const lastSyncedBlock = await fullNode.getBlockNumber()
-    console.log(`syncing merkle tree from ${firstSyncBlock} till ${lastSyncedBlock}`)
-    // TODO: queryEventInChunks has a bug where firstBlock === lastBlock produces 0 iterations.
-    // Adding 1n to lastBlock works around this since getLogs toBlock is inclusive anyway,
-    // and the extra block is either empty or not yet mined.
-    const events = await queryEventInChunks({
-        publicClient: archiveNode,
-        contract: wormholeTokenArchive,
-        eventName: "NewLeaf",
-        firstBlock: firstSyncBlock,
-        lastBlock: lastSyncedBlock + 1n,
-        chunkSize: blocksPerGetLogsReq,
-    })
-    console.log(`done syncing merkle tree from ${firstSyncBlock} till ${lastSyncedBlock} \n it took: ${Date.now() - timeBefore} ms`)
-    // formatting
-    const sortedEvents = events.sort((a: any, b: any) => Number(a.args.index - b.args.index))
-    const leafs = [...preSyncedLeaves, ...sortedEvents.map((event) => event.args.leaf)]
+    let leafs
+    if (isAlreadySynced) {
+        leafs = preSyncedLeaves
+    } else {
+        const timeBefore = Date.now()
+        syncTillBlock ??= BigInt(await fullNode.getBlockNumber())
+        console.log(`syncing merkle tree from ${firstSyncBlock} till ${syncTillBlock}`)
+        // TODO: queryEventInChunks has a bug where firstBlock === lastBlock produces 0 iterations.
+        // Adding 1n to lastBlock works around this since getLogs toBlock is inclusive anyway,
+        // and the extra block is either empty or not yet mined.
+        const events = await queryEventInChunks({
+            publicClient: archiveNode,
+            contract: wormholeTokenArchive,
+            eventName: "NewLeaf",
+            firstBlock: firstSyncBlock,
+            lastBlock: syncTillBlock,
+            chunkSize: blocksPerGetLogsReq,
+        })
+        console.log(`done syncing merkle tree from ${firstSyncBlock} till ${syncTillBlock} \n it took: ${Date.now() - timeBefore} ms`)
+        // formatting
+        const sortedEvents = events.sort((a: any, b: any) => Number(a.args.index - b.args.index))
+        leafs = [...preSyncedLeaves, ...sortedEvents.map((event) => event.args.leaf)]
+
+    }
+
     const tree = new LeanIMT(poseidon2IMTHashFunc, leafs)
+    
 
     // check root against chain
-    const isValidRoot = await wormholeTokenFull.read.roots([tree.root])
-    if (isValidRoot === false) { throw new Error("getTree synced but got invalid root") }
+    const isValidRoot = await wormholeTokenArchive.read.root({blockNumber:syncTillBlock}) === (tree.root ?? 0n)
+    if (isValidRoot === false) { throw new Error(`getSyncedMerkleTree synced but got invalid root`) }
 
-    return { tree, lastSyncedBlock, firstSyncedBlock: deploymentBlock } as PreSyncedTree
+    return { tree, lastSyncedBlock: syncTillBlock, firstSyncedBlock: originalStartSyncBlock } as PreSyncedTree
 }
 
 async function encrypt({ plaintext, viewingKey, padding = ENCRYPTED_TOTAL_MINTED_PADDING }: { plaintext: string, viewingKey: bigint, padding?: number }): Promise<Hex> {

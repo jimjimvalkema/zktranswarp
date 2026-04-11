@@ -148,6 +148,23 @@ describe("Token", async function () {
             //console.log(gasString)
         })
 
+        it("reMint 5x in succession", async function () {
+            const chainId = await publicClient.getChainId()
+            const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
+            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken.address)
+            const aliceBurnAccount = await aliceBurnWallet.createBurnAccount(wormholeToken.address, {viewingKeyIndex:0})
+
+            const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
+            await wormholeTokenAlice.write.getFreeTokens([alice.account.address])
+
+            await aliceBurnWallet.superSafeBurn(wormholeToken.address, 5n, aliceBurnAccount)
+            for (let index = 0; index < 5; index++) {
+                const proof = await aliceBurnWallet.easyProof(wormholeToken.address, alice.account.address, 1n, {threads:provingThreads})
+                await aliceBurnWallet.selfRelayTx(proof)
+                
+            }
+        })
+
         it("reMint 3x from 1 burn accounts", async function () {
             // ----------------- config test -----------------
             const amountOfBurnAccounts = 1
@@ -159,8 +176,6 @@ describe("Token", async function () {
             const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
             const reMintRecipient = bob.account.address
             // ---------------------------------------------
-            const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
-            console.log({ contractConfig })
 
 
 
@@ -187,16 +202,6 @@ describe("Token", async function () {
                     const burnTx = await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
                     await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
-
-                // TODO BurnWallet.sync() syncs all. should be split in BurnWallet.syncTree() BurnWallet.syncAccounts()
-                // burnAddresses:undefined = all, ["0x122"] <- only that burn account
-                // defaults to defaultSigner() and chainId from viemWallet
-                // we can also filter per difficulty but tbh nah, just make ur own burnAddresses array
-                // skip this as example. Too convenient! 
-                // await aliceBurnWallet.sync(wormholeToken.address)
-                // do in steps, uis will do at as well. although they should consider doing it concurrently!!!
-                // await aliceBurnWallet.syncAccounts(wormholeToken.address)
-                // await aliceBurnWallet.syncTree(wormholeToken.address)  
                 const proof = await aliceBurnWallet.easyProof(
                     wormholeToken.address,
                     reMintRecipient,
@@ -284,15 +289,6 @@ describe("Token", async function () {
                     await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
 
-                // TODO BurnWallet.sync() syncs all. should be split in BurnWallet.syncTree() BurnWallet.syncAccounts()
-                // burnAddresses:undefined = all, ["0x122"] <- only that burn account
-                // defaults to defaultSigner() and chainId from viemWallet
-                // we can also filter per difficulty but tbh nah, just make ur own burnAddresses array
-                // skip this as example. Too convenient! 
-                // await aliceBurnWallet.sync(wormholeToken.address)
-                // do in steps, uis will do at as well. although they should consider doing it concurrently!!!
-                // await aliceBurnWallet.syncAccounts(wormholeToken.address)
-                // await aliceBurnWallet.syncTree(wormholeToken.address)  
                 const proof = await aliceBurnWallet.easyProof(
                     wormholeToken.address,
                     reMintRecipient,
