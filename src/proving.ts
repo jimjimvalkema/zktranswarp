@@ -1,6 +1,6 @@
 import { getAddress, toHex } from "viem"
 import type { Hex, Address, PublicClient } from "viem"
-import type { MerkleData, SpendableBalanceProof, PreSyncedTree, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount, BurnAccountSelector, ProofInputs } from "./types.js"
+import type { MerkleData, SpendableBalanceProof, PreSyncedTree, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount, BurnAccountSelector, ProofInputs, BurnAccount } from "./types.js"
 import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_MINTED_PADDING } from "./constants.ts"
 import { hashTotalMintedLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
@@ -396,7 +396,7 @@ export async function createRelayerInputs(
     archiveNode: PublicClient,
     signingEthAccount: Address,
     opts: CreateRelayerInputsOpts & { feeData: FeeData }
-): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
+): Promise<{ relayInputs: SelfRelayInputs, syncedData: { lastSyncedBlock: bigint, syncedBurnAccounts: SyncedBurnAccount[], syncedTree: PreSyncedTree, burnViewKeyManager: BurnViewKeyManager } }>
 
 // Overload 2: feeData omitted → SelfRelayInputs
 export async function createRelayerInputs(
@@ -407,8 +407,7 @@ export async function createRelayerInputs(
     archiveNode: PublicClient,
     signingEthAccount: Address,
     opts?: CreateRelayerInputsOpts
-): Promise<{ relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
-
+): Promise<{ relayInputs: RelayInputs, syncedData: { lastSyncedBlock: bigint, syncedBurnAccounts: SyncedBurnAccount[], syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }>;
 /**
  * @TODO split up into sync and proof stage, so it's clear what can be done without an archive node
  * Creates the inputs needed to relay a private transfer (either self-relay or via a relayer).
@@ -461,7 +460,7 @@ export async function createRelayerInputs(
     signingEthAccount: Address,
     { burnAccountSelector = selectSmallFirst, allowedChainIds, fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
-): Promise<{ relayInputs: RelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } }> {
+): Promise<{ relayInputs: RelayInputs, syncedData: { lastSyncedBlock: bigint, syncedBurnAccounts: SyncedBurnAccount[], syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { lastSyncedBlock: bigint, syncedBurnAccounts: SyncedBurnAccount[], syncedTree: PreSyncedTree, burnViewKeyManager: BurnViewKeyManager } }> {
     //------- set defaults ----------------
     tokenAddress = getAddress(tokenAddress)
     signingEthAccount = getAddress(signingEthAccount)
@@ -498,7 +497,7 @@ export async function createRelayerInputs(
     )
 
     // sync burn accounts
-    const syncedPrivateWallet = await syncMultipleBurnAccounts(
+    const { syncedBurnAccounts, burnViewKeyManager: burnViewKeyManagerSynced, lastSyncedBlock } = await syncMultipleBurnAccounts(
         burnViewKeyManager,
         tokenAddress,
         archiveNode,
@@ -507,6 +506,7 @@ export async function createRelayerInputs(
             //ethAccounts: [ethAccount]         // we already know which burn addresses, we don't need to filter based on signer account
         }
     )
+    burnViewKeyManager = burnViewKeyManagerSynced
 
     // -------------burn account sync, selection -----------------------
     const burnAccountsAndAmounts = await selectBurnAccountsForClaim(
@@ -531,7 +531,7 @@ export async function createRelayerInputs(
         feeData
     );
     const syncedTree = await syncedTreePromise;
-    burnViewKeyManager = syncedPrivateWallet
+    burnViewKeyManager = burnViewKeyManager
     //----------------------------------------------------------------------
 
     // ----- hash inputs, format proof inputs and proof -----
@@ -553,7 +553,7 @@ export async function createRelayerInputs(
         backends,
         threads,
     )
-    return { relayInputs, syncedData: { syncedTree, syncedPrivateWallet } }
+    return { relayInputs, syncedData: { syncedTree, syncedBurnAccounts, burnViewKeyManager, lastSyncedBlock } }
 }
 
 export async function hashAndProof(

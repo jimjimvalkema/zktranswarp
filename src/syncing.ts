@@ -92,10 +92,10 @@ export async function getSyncedMerkleTree(
     }
 
     const tree = new LeanIMT(poseidon2IMTHashFunc, leafs)
-    
+
 
     // check root against chain
-    const isValidRoot = await wormholeTokenArchive.read.root({blockNumber:syncTillBlock}) === (tree.root ?? 0n)
+    const isValidRoot = await wormholeTokenArchive.read.root({ blockNumber: syncTillBlock }) === (tree.root ?? 0n)
     if (isValidRoot === false) { throw new Error(`getSyncedMerkleTree synced but got invalid root`) }
 
     return { tree, lastSyncedBlock: syncTillBlock, firstSyncedBlock: originalStartSyncBlock } as PreSyncedTree
@@ -171,15 +171,20 @@ export async function decryptTotalMinted({ viewingKey, totalMintedEncrypted }: {
  * @param param3 
  * @returns 
  */
-export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Address, archiveNode: PublicClient, {syncTillBlock, maxNonce, chainId }: {syncTillBlock?:bigint, maxNonce?: bigint, chainId?: Hex } = {}
+export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Address, archiveNode: PublicClient, { syncTillBlock, maxNonce, chainId }: { syncTillBlock?: bigint, maxNonce?: bigint, chainId?: Hex } = {}
 ): Promise<SyncedBurnAccount> {
     tokenAddress = getAddress(tokenAddress)
     chainId ??= toHex(await archiveNode.getChainId())
     syncTillBlock ??= await archiveNode.getBlockNumber()
+    const prevSyncFields = burnAccount.syncData?.[chainId]?.[tokenAddress]
+    // only strict equal. syncBurnAccount can also "un-sync" a burnAccount for historic look ups, so it can be proven against a stale tree
+    if (prevSyncFields && BigInt(prevSyncFields.lastSyncedBlock) === syncTillBlock) {
+        return burnAccount as SyncedBurnAccount
+    }
     const wormholeTokenArchive = getWormholeTokenContract(tokenAddress, { public: archiveNode })
 
     const viewingKey = BigInt(burnAccount.viewingKey)
-    const prevSyncFields = burnAccount.syncData?.[chainId]?.[tokenAddress]
+
     const initialAccountNonce = BigInt(prevSyncFields?.accountNonce ?? 0n)
     let accountNonce = initialAccountNonce
     //accountNonce = accountNonce === 0n ? 0n : accountNonce - 1n
@@ -188,12 +193,12 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
     let lastSpendBlockNum: bigint | null = null
     let lastNullifier: bigint | null = null;
 
-    const totalBurned = await wormholeTokenArchive.read.balanceOf([burnAccount.burnAddress], {blockNumber:syncTillBlock});
+    const totalBurned = await wormholeTokenArchive.read.balanceOf([burnAccount.burnAddress], { blockNumber: syncTillBlock });
     // nothing burned = nothing spent = nothing to sync
     if (totalBurned !== 0n) {
         while ((isNullified || isNullified === null) && (maxNonce === undefined || accountNonce < maxNonce)) {
             const nullifier = hashNullifier({ accountNonce: accountNonce, viewingKey: viewingKey })
-            const nullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([nullifier], {blockNumber:syncTillBlock})
+            const nullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([nullifier], { blockNumber: syncTillBlock })
             // if not nullified
             if (nullifiedAtBlock === 0n) {
                 // we are at the first iteration and accountNonce is not at 0. 
@@ -202,7 +207,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
                 if (wasPreviouslySynced) {
                     const prevNullifier = hashNullifier({ accountNonce: accountNonce - 1n, viewingKey: viewingKey })
                     // another rpc call but trust me i got stuck on this stupid ah bug for hours and it took claude a while to find it as well 
-                    const prevNullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([prevNullifier], {blockNumber:syncTillBlock})
+                    const prevNullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([prevNullifier], { blockNumber: syncTillBlock })
                     if (prevNullifiedAtBlock === 0n) {
                         throw new Error(`
                         provided burnAccount has an invalid accountNonce. Account nonce was set to a non 0 number but it's previous nonce was not nullified
@@ -270,21 +275,22 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
  */
 export async function syncMultipleBurnAccounts(
     burnViewKeyManager: BurnViewKeyManager, tokenAddress: Address, archiveNode: PublicClient,
-    {syncTillBlock, burnAddressesToSync, ethAccounts, maxNonce, chainId, concurrency = 5, onAccountSynced }: {syncTillBlock?:bigint, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex, concurrency?: number, onAccountSynced?: (burnAccount: BurnAccount) => void }={}) {
+    { syncTillBlock, burnAddressesToSync, ethAccounts, maxNonce, chainId, concurrency = 5, onAccountSynced }: { syncTillBlock?: bigint, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex, concurrency?: number, onAccountSynced?: (burnAccount: BurnAccount) => void } = {}) {
+    syncTillBlock ??= await archiveNode.getBlockNumber()
     const limit = pLimit(concurrency)
     const allBurnAccounts = getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts })
     burnAddressesToSync = burnAddressesToSync ? burnAddressesToSync.map((a) => getAddress(a)) : allBurnAccounts.map((v) => getAddress(v.burnAddress))
     console.log(`syncing ${burnAddressesToSync.length} burn accounts with max concurrency: ${concurrency}`)
     const startTime = Date.now()
-    await Promise.all(allBurnAccounts.map((burnAccount) => {
-        if (burnAddressesToSync.includes(getAddress(burnAccount.burnAddress))) {
-            return limit(async () => {
-                const synced = await syncBurnAccount(burnAccount, tokenAddress, archiveNode, { maxNonce, chainId, syncTillBlock})
-                burnViewKeyManager.updateBurnAccount(synced)
-                onAccountSynced?.(synced)
-            })
-        }
+    const allBurnAccountsToSync = allBurnAccounts.filter((b) => burnAddressesToSync.includes(getAddress(b.burnAddress)))
+    const syncedBurnAccounts = await Promise.all(allBurnAccountsToSync.map((burnAccount) => {
+        return limit(async () => {
+            const synced = await syncBurnAccount(burnAccount, tokenAddress, archiveNode, { maxNonce, chainId, syncTillBlock })
+            burnViewKeyManager.updateBurnAccount(synced)
+            onAccountSynced?.(synced)
+            return synced
+        })
     }))
-    console.log(`done syncing ${burnAddressesToSync.length} burn accounts. It took ${Date.now()-startTime} ms`)
-    return burnViewKeyManager
+    console.log(`done syncing ${burnAddressesToSync.length} burn accounts. It took ${Date.now() - startTime} ms`)
+    return { syncedBurnAccounts, burnViewKeyManager, lastSyncedBlock: syncTillBlock }
 }

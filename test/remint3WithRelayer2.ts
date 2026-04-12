@@ -177,30 +177,34 @@ describe("Token", async function () {
                 }
 
 
-                // 1. start tree sync asap, so it can sync even when user is still deciding on signing
-                const syncedTreePromise = aliceBurnWallet.syncTree(wormholeToken.address)
+                // 1. you can also just do await await BurnWallet.sync(0xAddress), but BurnWallet.sync without await returns
+                // syncedTree, syncedBurnAccounts as separate promise, so we can wait for just the account sync.
+                // And without having to wait on the merkle tree
+                const { syncedTree:syncedTreeProm, syncedBurnAccounts:syncedBurnAccountsProm } = aliceBurnWallet.sync(wormholeToken.address)
 
-                // 2. sync burn accounts (needed before selection)
-                await aliceBurnWallet.syncBurnAccounts(wormholeToken.address, { burnAddressesToSync: claimableBurnAddress })
-
-                // 3. select burn accounts for spend
+                // 2. select burn accounts for spend
+                // wait till it's synced
+                await syncedBurnAccountsProm;
+                // make selection
                 const selection = await aliceBurnWallet.selectBurnAccountsForSpend(wormholeToken.address, reMintAmount, {
                     burnAddresses: claimableBurnAddress,
                     circuitSize: CIRCUIT_SIZE,
                 })
 
-                // 4. sign
+                // 3. sign
                 const signed = await aliceBurnWallet.signReMint(reMintRecipient, selection, {
                     feeData: feeData,
                 })
 
-                // 5. ensure tree is synced before proving
-                const syncedTree = await syncedTreePromise
+                // 4. ensure tree is synced before proving
 
-                // 6. prove with the resolved tree
-                const relayInputs = await aliceBurnWallet.proof(signed, { syncedTree, threads: provingThreads, feeData })
+                // 5. prove with the resolved tree
+                // wait till tree is synced
+                await syncedTreeProm
+                // proof
+                const relayInputs = await aliceBurnWallet.proof(signed, { threads: provingThreads, feeData })
 
-                // 7. relay
+                // 6. relay
                 // BurnWallets can also do it. But tbh the relayer probably do not want their own burn accounts
                 //const reMintTx = await relayerBurnWallet.relayTx(relayInputs)
                 const reMintTx = await relayTx(relayInputs, relayer)

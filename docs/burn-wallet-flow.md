@@ -3,22 +3,23 @@
 ## Overview
 
 ```
-syncTree ──────────────────────────────────────────────────> ┐
+syncTree ────────────────────────────────────────────────────────> ┐
 syncBurnAccounts ──> selectBurnAccountsForSpend ──> signReMint ──> proof ──> relay
                          ↕ (UI decision point)
 ```
 ## TODO force syncMerkle tree and syncBurnAccounts to syncTillBlock to be the same. Same for easyProof
 ## TODO make signReMint, proof, relay, selfRelayTx check the nullifier (maybe not everyone to save on calls? Just the once that break ux)
-
+## TODO to make burn accounts synced. UI can subscribe to transfer events for when another burn happens + watch a nullifier from the next nonce
 
 ## Full Flow
 
 ```ts
-// 1. start tree sync immediately — runs in background throughout
-const syncedTreePromise = wallet.syncTree(tokenAddress)
+// 1. sync — without await returns individual promises so we can
+//    wait for accounts first and let the tree sync in the background
+const { syncedTree, syncedBurnAccounts } = wallet.sync(tokenAddress)
 
-// 2. sync burn accounts (needed before selection)
-await wallet.syncBurnAccounts(tokenAddress)
+// 2. wait for accounts (needed before selection)
+await syncedBurnAccounts
 
 // 3. select burn accounts for spend
 const selection = await wallet.selectBurnAccountsForSpend(tokenAddress, amount)
@@ -29,11 +30,11 @@ const selection = await wallet.selectBurnAccountsForSpend(tokenAddress, amount)
 // 4. sign
 const signed = await wallet.signReMint(recipient, selection, { feeData })
 
-// 5. ensure tree is synced before proving
-const syncedTree = await syncedTreePromise
+// 5. wait for tree (only needed before proving)
+await syncedTree
 
-// 6. prove with the resolved tree
-const result = await wallet.proof(signed, { syncedTree, threads })
+// 6. prove
+const result = await wallet.proof(signed, { threads })
 
 // 7. relay
 await wallet.selfRelayTx(result.relayInputs)
@@ -42,8 +43,8 @@ await wallet.selfRelayTx(result.relayInputs)
 ## With Relayer Fee
 
 ```ts
-const syncedTreePromise = wallet.syncTree(tokenAddress)
-await wallet.syncBurnAccounts(tokenAddress)
+const { syncedTree, syncedBurnAccounts } = wallet.sync(tokenAddress)
+await syncedBurnAccounts
 
 const selection = await wallet.selectBurnAccountsForSpend(tokenAddress, amount)
 
@@ -59,8 +60,8 @@ const signed = await wallet.signReMint(recipient, selection, {
     }
 })
 
-const syncedTree = await syncedTreePromise
-const result = await wallet.proof(signed, { syncedTree, threads })
+await syncedTree
+const result = await wallet.proof(signed, { threads, feeData })
 
 // relayer submits instead of self-relay
 await wallet.relayTx(result.relayInputs)
