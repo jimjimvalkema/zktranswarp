@@ -84,12 +84,44 @@ const pendingRelayTxsEl = document.getElementById("pendingRelayTxs")
 const bulkBurnAmountInputEl = document.getElementById("bulkBurnAmountInput") as HTMLInputElement
 const bulkBurnTotalEl = document.getElementById("bulkBurnTotal")
 const bulkBurnCountEl = document.getElementById("bulkBurnCount")
+const treeSyncStatusEl = document.getElementById("treeSyncStatus")
 
 const BURN_ACCOUNTS_PER_PAGE = 5
 let currentBurnPage = 0
 // Track which burn addresses are selected for remint across re-renders
 const selectedRemintAddresses = new Set<string>()
 let selectionInitialized = false
+let importInProgress = false
+let syncDotInterval: ReturnType<typeof setInterval> | null = null
+let treeSyncDotInterval: ReturnType<typeof setInterval> | null = null
+
+function startSyncDotAnimation() {
+    if (syncDotInterval) return
+    let dotCount = 0
+    syncDotInterval = setInterval(() => {
+        dotCount = (dotCount % 5) + 1
+        const totalPages = Math.max(1, Math.ceil(Math.max(cachedBurnAccounts.length, (currentBurnPage + 1) * BURN_ACCOUNTS_PER_PAGE) / BURN_ACCOUNTS_PER_PAGE))
+        burnPageLabelEl!.textContent = `(page ${currentBurnPage + 1} of ${totalPages}) syncing` + ".".repeat(dotCount)
+    }, 400)
+}
+
+function stopSyncDotAnimation() {
+    if (syncDotInterval) { clearInterval(syncDotInterval); syncDotInterval = null }
+}
+
+function startTreeSyncAnimation() {
+    if (treeSyncDotInterval) return
+    let dotCount = 0
+    treeSyncDotInterval = setInterval(() => {
+        dotCount = (dotCount % 5) + 1
+        treeSyncStatusEl!.textContent = "syncing merkle tree" + ".".repeat(dotCount)
+    }, 400)
+}
+
+function stopTreeSyncAnimation() {
+    if (treeSyncDotInterval) { clearInterval(treeSyncDotInterval); treeSyncDotInterval = null }
+    treeSyncStatusEl!.textContent = ""
+}
 
 const publicClient = createPublicClient({
     chain: sepolia,
@@ -255,23 +287,37 @@ async function updateWalletInfoUi(
                 , true, true, false);
         }, 500);
         const burnAddressesToSync = allBurnAccounts.map((ba) => ba.burnAddress)
-        burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync })
+        startSyncDotAnimation()
+        burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync, onAccountSynced: () => debouncedReRenderBurnAccounts(burnWallet) })
             .then(async () => {
                 await sleep(500)
                 clearInterval(powInterval);
-                // re-fetch after sync to get updated sync data
+                stopSyncDotAnimation()
                 const synced = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
                 saveBurnWallet(burnWallet)
                 updateBurnAccountsListUi(synced, decimals)
             })
             .catch((e) => {
                 clearInterval(powInterval);
+                stopSyncDotAnimation()
                 console.warn("burn account sync failed", e)
             })
     }
 }
 
 // --- burn address list in walletUi ---
+
+let progressRenderTimeout: ReturnType<typeof setTimeout> | null = null
+function debouncedReRenderBurnAccounts(burnWallet: BurnWallet, intervalMs = 500) {
+    if (progressRenderTimeout) return
+    progressRenderTimeout = setTimeout(async () => {
+        progressRenderTimeout = null
+        try {
+            const latest = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+            updateBurnAccountsListUi(latest, cachedDecimals)
+        } catch { }
+    }, intervalMs)
+}
 
 let cachedDecimals = 18
 let cachedBurnAccounts: BurnAccount[] = []
@@ -349,6 +395,7 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
     const pageEndIndex = startIndex + BURN_ACCOUNTS_PER_PAGE
     const totalPages = Math.max(1, Math.ceil(Math.max(burnAccounts.length, pageEndIndex) / BURN_ACCOUNTS_PER_PAGE))
     burnPageLabelEl!.textContent = `(page ${currentBurnPage + 1} of ${totalPages})`
+    if (importInProgress) { startSyncDotAnimation() }
 
     const pendingSpans: HTMLElement[] = []
 
@@ -575,18 +622,25 @@ async function connectBurnWallet() {
 
     const storedData = loadBurnWalletData()
     await burnWallet.connect(publicWallet)
-    if (storedData) {
-        logUi("restoring private wallet from local storage...\n please sign the message in your wallet", true)
-        await burnWallet.importWallet(storedData, wormholeTokenAddress, { forceReSign: false, onlyImportSigner: true })
-    }
-
     //@ts-ignore
     window.burnWallet = burnWallet
 
-    // start merkle tree sync in background
+    // start merkle tree sync in background (before import so they run concurrently)
+    startTreeSyncAnimation()
     burnWallet.syncTree(wormholeTokenAddress)
-        .then(() => saveBurnWallet(burnWallet))
-        .catch(e => console.warn("background tree sync failed", e))
+        .then(() => { stopTreeSyncAnimation(); saveBurnWallet(burnWallet) })
+        .catch(e => { stopTreeSyncAnimation(); console.warn("background tree sync failed", e) })
+
+    if (storedData) {
+        logUi("restoring private wallet from local storage...\n please sign the message in your wallet", true)
+        importInProgress = true
+        await burnWallet.importWallet(storedData, wormholeTokenAddress, {
+            forceReSign: false, onlyImportSigner: true,
+            onAccountImported: () => debouncedReRenderBurnAccounts(burnWallet)
+        })
+        importInProgress = false
+        stopSyncDotAnimation()
+    }
 
     // generate first page of burn accounts in parallel (UI updates progressively)
     currentBurnPage = 0
@@ -604,11 +658,18 @@ async function reconnectBurnWalletSigner(burnWallet: BurnWallet, walletClient: W
     await burnWallet.connect(walletClient)
     const storedData = loadBurnWalletData()
     if (storedData) {
-        await burnWallet.importWallet(storedData, wormholeTokenAddress, { forceReSign: false, onlyImportSigner: true })
+        importInProgress = true
+        await burnWallet.importWallet(storedData, wormholeTokenAddress, {
+            forceReSign: false, onlyImportSigner: true,
+            onAccountImported: () => debouncedReRenderBurnAccounts(burnWallet)
+        })
+        importInProgress = false
+        stopSyncDotAnimation()
     }
+    startTreeSyncAnimation()
     burnWallet.syncTree(wormholeTokenAddress)
-        .then(() => saveBurnWallet(burnWallet))
-        .catch(e => console.warn("background tree sync failed", e))
+        .then(() => { stopTreeSyncAnimation(); saveBurnWallet(burnWallet) })
+        .catch(e => { stopTreeSyncAnimation(); console.warn("background tree sync failed", e) })
 }
 
 async function getBurnWallet() {
@@ -676,31 +737,32 @@ async function mintBtnHandler() {
     await refreshAfterTx()
 }
 
-async function prevBurnAccountsPageHandler() {
+function prevBurnAccountsPageHandler() {
     if (currentBurnPage <= 0) return
     currentBurnPage -= 1
-    //@ts-ignore
-    const burnWallet = window.burnWallet as BurnWallet | undefined
-    if (!burnWallet) return
-    const decimals = Number(await wormholeToken.read.decimals())
-    const allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
-    updateBurnAccountsListUi(allBurnAccounts, decimals)
+    updateBurnAccountsListUi(cachedBurnAccounts, cachedDecimals)
 }
 
 async function nextBurnAccountsPageHandler() {
-    const { burnWallet } = await getBurnWallet()
+    //@ts-ignore
+    const burnWallet = window.burnWallet as BurnWallet | undefined
+    if (!burnWallet) return
     currentBurnPage += 1
-    try {
-        await ensurePageAccounts(currentBurnPage, burnWallet)
-    } catch (error) {
-        currentBurnPage -= 1
-        errorUi("failed to generate burn addresses for next page", error)
-        return
+    updateBurnAccountsListUi(cachedBurnAccounts, cachedDecimals)
+
+    if (!importInProgress) {
+        try {
+            await ensurePageAccounts(currentBurnPage, burnWallet)
+        } catch (error) {
+            currentBurnPage -= 1
+            errorUi("failed to generate burn addresses for next page", error)
+            return
+        }
+        const decimals = Number(await wormholeToken.read.decimals())
+        const updated = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+        updateBurnAccountsListUi(updated, decimals)
+        logUi(`page ${currentBurnPage + 1} ready`, false, true)
     }
-    const decimals = Number(await wormholeToken.read.decimals())
-    const allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
-    updateBurnAccountsListUi(allBurnAccounts, decimals)
-    logUi(`page ${currentBurnPage + 1} ready`, false, true)
 }
 
 function selectAllRemintHandler() {

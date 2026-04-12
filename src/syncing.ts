@@ -9,6 +9,7 @@ import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { hashNullifier } from "./hashing.ts"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
 import { getAllBurnAccounts, getWormholeTokenContract, wormholeTokenAbi } from "./utils.ts"
+import pLimit from "p-limit"
 
 export const poseidon2IMTHashFunc: LeanIMTHashFunction = (a: bigint, b: bigint) => poseidon2Hash([a, b])
 
@@ -263,26 +264,27 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
 /**
  * @TODO return at what block it's synced
  * defaults to syncing all burn accounts
- * @notice sync concurrently all accounts, this might overwhelm rpcs
  * @notice When using UnknownBurnAccount this becomes O(n × m). It uses `BurnViewKeyManager.updateBurnAccount` which will loop over all unknown burnAccounts to find which one to update
  * This is not an issue in most cases () but when using singe use burn accounts (for relayer refunds for example), or as utxo's, pls use the DerivedBurnAccount type.
- * TODO use p-limit
  * TODO make walletObject that has syncBurnAccount in it so importBurnAccount is not used since it will do checks in the future (which are redundant rn)
- * @param param0 
- * @returns 
  */
 export async function syncMultipleBurnAccounts(
     burnViewKeyManager: BurnViewKeyManager, tokenAddress: Address, archiveNode: PublicClient,
-    {syncTillBlock, burnAddressesToSync, ethAccounts, maxNonce, chainId }: {syncTillBlock?:bigint, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex }={}) {
+    {syncTillBlock, burnAddressesToSync, ethAccounts, maxNonce, chainId, concurrency = 5, onAccountSynced }: {syncTillBlock?:bigint, maxNonce?: bigint, ethAccounts?: Address[], burnAddressesToSync?: Address[], chainId?: Hex, concurrency?: number, onAccountSynced?: (burnAccount: BurnAccount) => void }={}) {
+    const limit = pLimit(concurrency)
     const allBurnAccounts = getAllBurnAccounts(burnViewKeyManager.privateData, { ethAccounts })
     burnAddressesToSync = burnAddressesToSync ? burnAddressesToSync.map((a) => getAddress(a)) : allBurnAccounts.map((v) => getAddress(v.burnAddress))
-    const syncedBurnAccounts = await Promise.all(allBurnAccounts.map((burnAccount) => {
+    console.log(`syncing ${burnAddressesToSync.length} burn accounts with max concurrency: ${concurrency}`)
+    const startTime = Date.now()
+    await Promise.all(allBurnAccounts.map((burnAccount) => {
         if (burnAddressesToSync.includes(getAddress(burnAccount.burnAddress))) {
-            return syncBurnAccount(burnAccount, tokenAddress, archiveNode, { maxNonce, chainId, syncTillBlock})
-        } else {
-            return burnAccount
+            return limit(async () => {
+                const synced = await syncBurnAccount(burnAccount, tokenAddress, archiveNode, { maxNonce, chainId, syncTillBlock})
+                burnViewKeyManager.updateBurnAccount(synced)
+                onAccountSynced?.(synced)
+            })
         }
     }))
-    await Promise.all(syncedBurnAccounts.map((burnAccount) => burnViewKeyManager.updateBurnAccount(burnAccount)))
+    console.log(`done syncing ${burnAddressesToSync.length} burn accounts. It took ${Date.now()-startTime} ms`)
     return burnViewKeyManager
 }

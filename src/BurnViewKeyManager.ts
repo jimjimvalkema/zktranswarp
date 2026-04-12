@@ -9,6 +9,7 @@ import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministi
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
 import { BurnAccountSyncFieldsSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
+import pLimit from "p-limit";
 import { viemAccountNotSetErr } from "./BurnWallet.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
@@ -82,7 +83,7 @@ export class BurnViewKeyManager {
         if (this.privateData.burnAccounts[ethAccount].pubKey && this.privateData.burnAccounts[ethAccount].detViewKeyRoot) {
             return { viewKeyRoot: this.privateData.burnAccounts[ethAccount].detViewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount].pubKey }
         } else {
-            const {signature} = await signViewKeyMessage(this.viemWallet,ethAccount,message)
+            const { signature } = await signViewKeyMessage(this.viemWallet, ethAccount, message)
             return this.#storeSignIn(signature, message, ethAccount)
         }
     }
@@ -99,7 +100,7 @@ export class BurnViewKeyManager {
         return { viewKeyRoot, pubKey: this.privateData.burnAccounts[ethAccount] }
     }
 
-    async connectPreSigned(wallet:WalletClient,signature: Hex, message: string) {
+    async connectPreSigned(wallet: WalletClient, signature: Hex, message: string) {
         if (wallet.account === undefined) throw new Error(viemAccountNotSetErr)
         const recovered = await recoverMessageAddress({ message, signature })
         const ethAccount = getAddress(wallet.account.address)
@@ -386,19 +387,16 @@ export class BurnViewKeyManager {
     }
 
     // import
-    /**
-     * TODO use pLimit so we don't bombard rpc, during this.importBurnAccount
-     * @param json 
-     * @param wormholeToken 
-     * @param archiveNode 
-     * @param param3 
-     */
     async importViewKeyWalletData(
         importedViewKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>, tokenAddress: Address, archiveNode: PublicClient,
-        { forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode, onlySignInWith }: { forceReSign?: boolean, forceReHashViewKey?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient, onlySignInWith?: Address } = {}
+        { fullSync = true, syncTillBlock, forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode, onlySignInWith, concurrency = 15, onAccountImported }: { fullSync?: boolean, syncTillBlock?: bigint, forceReSign?: boolean, forceReHashViewKey?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient, onlySignInWith?: Address, concurrency?: number, onAccountImported?: () => void } = {}
     ) {
         fullNode ??= archiveNode;
+        syncTillBlock ??= BigInt(await fullNode.getBlockNumber())
+        const limit = pLimit(concurrency)
         const allBurnAccounts = BurnAccountToFlatArrExportedData(importedViewKeyData).filter(n => n)
+        console.log(`importing ${allBurnAccounts.length} burn accounts with max concurrency: ${concurrency}`)
+        const startTime = Date.now()
 
         // ---------- sign in before import -------------
         // so the user only gets one request per ethAccount+message combo
@@ -430,7 +428,10 @@ export class BurnViewKeyManager {
             return !rejectedKeys.has(key);
         });
 
-        await Promise.all(accountsToImport.map((b) => this.importBurnAccount(b, tokenAddress, archiveNode, { forceReSign, forceReHashViewKey, forcePow, async, fullNode })));
+        await Promise.all(accountsToImport.map((b) => limit(async () => {
+            await this.importBurnAccount(b, tokenAddress, archiveNode, { fullSync, syncTillBlock, forceReSign, forceReHashViewKey, forcePow, async, fullNode })
+            onAccountImported?.()
+        })));
 
         const normalizedOnlySignInWith = onlySignInWith ? getAddress(onlySignInWith) : undefined
         const ethAccountsToImport = (Object.keys(importedViewKeyData.burnAccounts) as Address[])
@@ -452,6 +453,7 @@ export class BurnViewKeyManager {
                 this.privateData.burnAccounts[ethAccount].detViewKeyCounter = source.detViewKeyCounter
             }
         }
+        console.log(`done importing ${allBurnAccounts.length} burn accounts. It took ${Date.now() - startTime} ms`)
     }
     // { ethAccount, powNonce, viewingKey, viewingKeyIndex, chainId = this.defaults.chainId, difficulty = this.defaults.powDifficulty, async = false, viewKeyMessage = this.privateData.viewKeySigMessage }
     /**
@@ -462,11 +464,12 @@ export class BurnViewKeyManager {
      * @param param3 
      */
     async importBurnAccount(importedBurnAccount: AnyBurnAccount, tokenAddress: Address, archiveNode: PublicClient,
-        { forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode }: { forceReHashViewKey?: boolean, fullNode?: PublicClient, forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
+        { fullSync = true, syncTillBlock, forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode }: { fullSync?: boolean, syncTillBlock?: bigint, forceReHashViewKey?: boolean, fullNode?: PublicClient, forceReSign?: boolean, forcePow?: boolean, async?: boolean } = {}
     ) {
         fullNode ??= archiveNode
         const idBurnAccount = identifyBurnAccount(importedBurnAccount);
         let reCreatedBurnAccount: BurnAccount;
+        syncTillBlock ??= BigInt(await fullNode.getBlockNumber())
         // recreate the full burn account as much as possible, even if keys are already provided. So we can check every key was correct later
         if (idBurnAccount.derivation === "Derived") {
             reCreatedBurnAccount = await this.createBurnAccount(
@@ -533,7 +536,7 @@ export class BurnViewKeyManager {
                     }
                 }
             }
-            await syncBurnAccount(reCreatedBurnAccount, tokenAddress, archiveNode, { maxNonce })
+            await syncBurnAccount(reCreatedBurnAccount, tokenAddress, archiveNode, { maxNonce: fullSync ? undefined : maxNonce, syncTillBlock: syncTillBlock })
         }
     }
 }

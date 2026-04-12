@@ -60,6 +60,7 @@
     "es-main": "^1.4.0",
     "esbuild": "^0.25.12",
     "hardhat": "3.2.0",
+    "p-limit": "^7.3.0",
     "poseidon-lite": "^0.2.0",
     "poseidon-solidity": "^0.0.5",
     "rollup-plugin-copy": "^3.5.0",
