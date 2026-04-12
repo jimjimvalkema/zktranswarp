@@ -1,8 +1,8 @@
 {
-  "wormholeToken#ZKTranscriptLib": "0xa18173E1dc91552c52fC9B83273fACAe4C951beC",
-  "wormholeToken#leanIMTPoseidon2": "0xe5E402dfbCB98B6980C83A1E0a595906c6bc79Dd",
-  "wormholeToken#reMint100Verifier": "0x1C4dB55b59Cd6be28B9Ca1E4C2AaA007727d9360",
-  "wormholeToken#reMint32Verifier": "0xeF09e282257c0015122ff7CB8477E68C5EC49133",
-  "wormholeToken#reMint3Verifier": "0xdC222e8fFC5886B9B16BA6C918795Bf8D5bE7913",
-  "wormholeToken#WormholeToken": "0x194CD0C73A1884683D5817FB7D4CdA6deeDbe8DC"
+  "wormholeToken#ZKTranscriptLib": "0x96BFB37dE8b66c395c41A5afF35f4f44a11E1Bbe",
+  "wormholeToken#leanIMTPoseidon2": "0x138aFa3b2962A8f5c27Fb0bb91a4B6AB649C49d8",
+  "wormholeToken#reMint100Verifier": "0x85B739609d681b285da4Ad03B5AD746e46A54cAa",
+  "wormholeToken#reMint32Verifier": "0x94250907391f063ecf3aFaABE9898cD65DfEF7FE",
+  "wormholeToken#reMint3Verifier": "0xd32fFb6e84D0C2A9E72c37548bBbb85917eE3603",
+  "wormholeToken#WormholeToken": "0x00BfCb575241cA4285cD20843A6bd6d026b65775"
 }
