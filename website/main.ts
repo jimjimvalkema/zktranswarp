@@ -81,6 +81,9 @@ const totalSelectedSpendableEl = document.getElementById("totalSelectedSpendable
 const burnRecipientSelectEl = document.getElementById("burnRecipientSelect") as HTMLSelectElement
 const burnAmountInputEl = document.getElementById("burnAmountInput")
 const pendingRelayTxsEl = document.getElementById("pendingRelayTxs")
+const bulkBurnAmountInputEl = document.getElementById("bulkBurnAmountInput") as HTMLInputElement
+const bulkBurnTotalEl = document.getElementById("bulkBurnTotal")
+const bulkBurnCountEl = document.getElementById("bulkBurnCount")
 
 const BURN_ACCOUNTS_PER_PAGE = 5
 let currentBurnPage = 0
@@ -295,6 +298,17 @@ function updateTotalSelectedSpendable() {
     totalSelectedSpendableEl!.textContent = formatUnits(total, cachedDecimals)
 }
 
+function updateBulkBurnTotal() {
+    const count = selectedRemintAddresses.size
+    bulkBurnCountEl!.textContent = String(count)
+    try {
+        const amountPerAddress = parseUnits(bulkBurnAmountInputEl.value, cachedDecimals)
+        bulkBurnTotalEl!.textContent = formatUnits(amountPerAddress * BigInt(count), cachedDecimals)
+    } catch {
+        bulkBurnTotalEl!.textContent = "?"
+    }
+}
+
 function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number) {
     cachedDecimals = decimals
     cachedBurnAccounts = burnAccounts
@@ -368,6 +382,7 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
                     selectedRemintAddresses.delete(burnAccount.burnAddress)
                 }
                 updateTotalSelectedSpendable()
+                updateBulkBurnTotal()
             })
 
             const chainId = toHex(sepolia.id)
@@ -433,6 +448,7 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
     }
 
     updateTotalSelectedSpendable()
+    updateBulkBurnTotal()
 }
 
 function getSelectedRemintBurnAddresses(): Address[] {
@@ -692,19 +708,22 @@ function selectAllRemintHandler() {
     const burnWallet = window.burnWallet as BurnWallet | undefined
     if (!burnWallet) return
 
-    const checkboxes = Array.from(burnAccountsListEl!.querySelectorAll<HTMLInputElement>('input[name="remintBurnAddresses"]'))
-    const allChecked = checkboxes.every((cb) => cb.checked)
+    const allSelected = cachedBurnAccounts.every((b) => b && selectedRemintAddresses.has(b.burnAddress))
 
-    // toggle all on current page
-    for (const cb of checkboxes) {
-        cb.checked = !allChecked
-        if (cb.checked) {
-            selectedRemintAddresses.add(cb.value)
-        } else {
-            selectedRemintAddresses.delete(cb.value)
+    if (allSelected) {
+        selectedRemintAddresses.clear()
+    } else {
+        for (const b of cachedBurnAccounts) {
+            if (b?.burnAddress) selectedRemintAddresses.add(b.burnAddress)
         }
     }
+
+    const checkboxes = Array.from(burnAccountsListEl!.querySelectorAll<HTMLInputElement>('input[name="remintBurnAddresses"]'))
+    for (const cb of checkboxes) {
+        cb.checked = selectedRemintAddresses.has(cb.value)
+    }
     updateTotalSelectedSpendable()
+    updateBulkBurnTotal()
 }
 
 async function setToPublicAddressBtnHandler(where: HTMLElement) {
@@ -769,6 +788,47 @@ async function burnBtnHandler() {
         await txInUi(txHash as Hex)
     } catch (error) {
         errorUi("safe burn failed", error)
+        return
+    }
+
+    await refreshAfterTx()
+}
+
+async function bulkBurnBtnHandler() {
+    const { burnWallet } = await getBurnWallet()
+    const decimals = Number(await wormholeToken.read.decimals())
+
+    let amountPerAddress: bigint
+    try {
+        amountPerAddress = parseUnits(bulkBurnAmountInputEl.value, decimals)
+    } catch (error) {
+        errorUi("something went wrong, is this not a valid number?", error)
+        return
+    }
+
+    const selected = getSelectedRemintBurnAddresses()
+    if (selected.length === 0) {
+        errorUi("select at least one burn address from the list above", new Error("no burn addresses selected"))
+        return
+    }
+
+    const allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+    const recipientsAndAmounts: { burnAccount: BurnAccount, amount: bigint }[] = []
+    for (const address of selected) {
+        const burnAccount = allBurnAccounts.find((b) => b.burnAddress === address)
+        if (!burnAccount) {
+            errorUi(`burn address ${address} is not a known burn account`, new Error("unknown burn address"))
+            return
+        }
+        recipientsAndAmounts.push({ burnAccount, amount: amountPerAddress })
+    }
+
+    logUi(`running superSafeBurnBulk checks and sending tx for ${selected.length} addresses...`, true)
+    try {
+        const txHash = await burnWallet.superSafeBurnBulk(wormholeTokenAddress, recipientsAndAmounts)
+        await txInUi(txHash as Hex)
+    } catch (error) {
+        errorUi("bulk burn failed", error)
         return
     }
 
@@ -914,6 +974,8 @@ async function loadTokenHandler() {
     burnAccountsListEl!.innerHTML = "<li>connect private wallet first</li>"
     burnPageLabelEl!.textContent = ""
     totalSelectedSpendableEl!.textContent = "0"
+    bulkBurnTotalEl!.textContent = "0"
+    bulkBurnCountEl!.textContent = "0"
 
     // if public wallet connected, recreate the wallet-bound contract
     //@ts-ignore
@@ -968,6 +1030,8 @@ document.getElementById('prevBurnAccountsPage')?.addEventListener('click', prevB
 document.getElementById('nexBurnAccountsPage')?.addEventListener('click', nextBurnAccountsPageHandler)
 document.getElementById('selectAllRemintBtn')?.addEventListener('click', selectAllRemintHandler)
 document.getElementById('burnBtn')?.addEventListener('click', burnBtnHandler)
+document.getElementById('bulkBurnBtn')?.addEventListener('click', bulkBurnBtnHandler)
+bulkBurnAmountInputEl.addEventListener('input', updateBulkBurnTotal)
 document.getElementById('proofPrivaterTransferBtn')?.addEventListener('click', proofPrivateTransferBtnHandler)
 
 // update UI when user switches accounts or chain in MetaMask

@@ -114,6 +114,21 @@
       <button id="burnBtn">burn</button>
     </div>
 
+    <div id="bulkBurnUi" class="inner">
+      <h1>bulk safe Burn</h1>
+      Burns the same amount to every burn address currently selected in the list above.
+      <br>
+      One on-chain transferBulk tx, one merkle update.
+      <br>
+      <br>
+      <label for="bulkBurnAmountInput">amount per burn address</label>
+      <input value="420" type="number" name="bulkBurnAmount" id="bulkBurnAmountInput" required />
+      <br>
+      <strong>total being burned: <span id="bulkBurnTotal">0</span> across <span id="bulkBurnCount">0</span> address(es)</strong>
+      <br>
+      <button id="bulkBurnBtn">bulk burn</button>
+    </div>
+
     <div id="privateRemintUi" class="inner">
       <h1>Make Private (Remint)Transfer </h1>
       <label for="privateTransferRecipientInput">address</label>

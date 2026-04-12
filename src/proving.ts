@@ -466,15 +466,16 @@ export async function createRelayerInputs(
     tokenAddress = getAddress(tokenAddress)
     signingEthAccount = getAddress(signingEthAccount)
     fullNode ??= archiveNode
-    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
-    circuitSizes ??= await getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode });
+    [circuitSizes, powDifficulty, allowedChainIds, reMintLimit, chainId, maxTreeDepth] = await Promise.all([
+        circuitSizes ?? getCircuitSizesFromContract(wormholeTokenFull as WormholeToken),
+        powDifficulty ?? wormholeTokenFull.read.POW_DIFFICULTY(),
+        allowedChainIds ?? getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken).then((v) => v.map((id) => toHex(id))),
+        reMintLimit ?? wormholeTokenFull.read.RE_MINT_LIMIT(),
+        chainId ?? BigInt(await fullNode.getChainId()),
+        maxTreeDepth ?? wormholeTokenFull.read.MAX_TREE_DEPTH(),
+    ])
     if (circuitSize && circuitSizes.includes(circuitSize) === false) throw new Error(`circuit size: ${circuitSize} does not exist in contract: ${tokenAddress}, only sizes: ${circuitSizes.toString()} are available`)
-
-    powDifficulty ??= await wormholeTokenFull.read.POW_DIFFICULTY()
-    allowedChainIds ??= (await getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken)).map((v) => toHex(v))
-    reMintLimit ??= await wormholeTokenFull.read.RE_MINT_LIMIT();
-    chainId ??= BigInt(await fullNode.getChainId());
-    maxTreeDepth ??= await wormholeTokenFull.read.MAX_TREE_DEPTH()
     if (eip712Name === undefined || eip712Version === undefined) {
         const [, name, version] = await wormholeTokenFull.read.eip712Domain()
         eip712Name ??= name

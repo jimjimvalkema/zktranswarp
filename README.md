@@ -85,15 +85,6 @@ deploy main contracts:
 yarn hardhat ignition deploy ignition/modules/wormtoken.ts --verify --network sepolia
 ```  
 
-deploy split contract (used for batch erc20 sends in ui)
-```shell
-yarn hardhat ignition deploy ignition/modules/split.ts --verify --network sepolia
-```
-<!-- ```shell
-yarn hardhat run scripts/deploy.ts --network sepolia
-``` -->
-
-
 deploy poseidon2 hasher with create2 (if it's not deployed yet)
 ```shell
 yarn hardhat run scripts/deployPoseidon2.ts --network sepolia

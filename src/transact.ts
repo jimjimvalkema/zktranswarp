@@ -11,6 +11,57 @@ import { getAcceptedChainIdFromContract, getWormholeTokenContract } from "./util
 import type { NotOwnedBurnAccount } from "./schemas.ts";
 
 
+export async function burnCheck(burnAddress: Address, amount: bigint, tokenAddress: Address, fullNode: PublicClient, { maxTreeDepth, reMintLimit }: { maxTreeDepth: number, reMintLimit: bigint }) {
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
+    // state
+    const balance = await wormholeTokenFull.read.balanceOf([burnAddress])
+    const newBurnBalance = balance + amount
+    const treeSize = await wormholeTokenFull.read.treeSize()
+    const safeDistanceFromFullTree = (35_000n / 10n) * 60n * 60n // 35_000 burn tx's for 1 hour.  assumes a 35_000 tps chain and burn txs being 10x expensive
+    const fullTreeSize = 2n ** BigInt(maxTreeDepth)
+
+
+    if (treeSize >= fullTreeSize) { throw new Error("Tree is FULL this tx WILL RESULT IS LOSS OF ALL FUNDS SEND. DO NOT SEND ANY BURN TRANSACTION!!!") }
+    if (treeSize + safeDistanceFromFullTree >= fullTreeSize) { throw new Error("Tree is almost full and the risk is high this burn tx will result in loss of all funds send") }
+    if (newBurnBalance >= reMintLimit) { throw new Error(`This transfer will cause the balance to go over the RE_MINT_LIMIT. This wil result in LOSS OF ALL FUNDS OVER THE LIMIT!! DO NOT SEND THIS TRANSACTION!!\n new balance: ${newBurnBalance} \n limit:       ${reMintLimit}`) }
+}
+
+export async function burnCheckSafe(burnAccount: NotOwnedBurnAccount, amount: bigint, tokenAddress: Address, fullNode: PublicClient, signingEthAccount: Address,
+    { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }: { isCrossChain: boolean, difficulty: bigint, reMintLimit: bigint, maxTreeDepth: number, acceptedChainIds?: Hex[] }
+) {
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
+    // checks
+    if (isCrossChain) {
+        acceptedChainIds ??= (await getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken)).map((v) => toHex(v))
+        if (acceptedChainIds.includes(burnAccount.chainId) === false) { throw new Error(`Burn account is on chainId:${burnAccount.chainId} but that is not a valid chainId for token: ${tokenAddress}, only these chainIds are accepted:${acceptedChainIds.toString()}`) }
+    }
+    const isValidPow = isValidPowNonce({
+        blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash),
+        powNonce: BigInt(burnAccount.powNonce),
+        difficulty: difficulty
+    })
+    if (isValidPow === false) { throw new Error(`PoW incorrect. Difficulty is ${toHex(difficulty, { size: 32 })} but resulting hash is: ${toHex(hashPow({ blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash), powNonce: BigInt(burnAccount.powNonce) }), { size: 32 })}`) }
+    await burnCheck(burnAccount.burnAddress, amount, tokenAddress, fullNode, { maxTreeDepth, reMintLimit })
+}
+
+export async function burnCheckSuperSafe(burnAccount: BurnAccount, amount: bigint, tokenAddress: Address, fullNode: PublicClient, signingEthAccount: Address,
+    { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }: { isCrossChain: boolean, difficulty: bigint, reMintLimit: bigint, maxTreeDepth: number, acceptedChainIds?: Hex[] }
+) {
+    const blindedAddressDataHash = hashBlindedAddressData({ spendingPubKeyX: burnAccount.spendingPubKeyX, viewingKey: BigInt(burnAccount.viewingKey), chainId: BigInt(burnAccount.chainId) })
+    const burnAddress = getBurnAddressSafe({ blindedAddressDataHash: blindedAddressDataHash, powNonce: BigInt(burnAccount.powNonce), difficulty: difficulty })
+    if (burnAddress !== getAddress(burnAccount.burnAddress)) { throw new Error(`Burn account address mismatch, recreated burn address as: ${burnAddress} but burnAccount has it's burn address set as ${getAddress(burnAccount.burnAddress)}`) }
+    await burnCheckSafe(
+        burnAccount, amount, tokenAddress, fullNode, signingEthAccount,
+        { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }
+    )
+}
+
+async function unsafeBurn(tokenAddress: Address, burnAddress: Address, amount: bigint, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address) {
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
+    const estimatedGas = await wormholeTokenFull.estimateGas.transfer([burnAddress, amount], { account: signingEthAccount })
+    return await wormholeTokenFull.write.transfer([burnAddress, amount], { account: signingEthAccount, chain: null, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
+}
+
 /**
  * that the merkle tree is not full and the balance of the recipient wont exceed reMintLimit
  * @notice does not check that the blindedAddressDataHash is correct!
@@ -24,28 +75,17 @@ import type { NotOwnedBurnAccount } from "./schemas.ts";
  */
 export async function burn(
     burnAddress: Address, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
-    { reMintLimit, maxTreeDepth, isCrossChain }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number } = {}
+    { reMintLimit, maxTreeDepth }: { reMintLimit?: bigint, maxTreeDepth?: number } = {}
 ) {
-    // defaults
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
-    reMintLimit ??= BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT())
-    isCrossChain ??= await wormholeTokenFull.read.IS_CROSS_CHAIN()
-    maxTreeDepth ??= await wormholeTokenFull.read.MAX_TREE_DEPTH()
+    const [resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
+        reMintLimit ?? BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT()),
+        maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
+    ])
 
-    // state
-    const balance = await wormholeTokenFull.read.balanceOf([burnAddress])
-    const newBurnBalance = balance + amount
-    const treeSize = await wormholeTokenFull.read.treeSize()
-    const safeDistanceFromFullTree = (35_000n / 10n) * 60n * 60n // 35_000 burn tx's for 1 hour.  assumes a 35_000 tps chain and burn txs being 10x expensive
-    const fullTreeSize = 2n ** BigInt(maxTreeDepth)
+    await burnCheck(burnAddress, amount, tokenAddress, fullNode, { maxTreeDepth: resolvedMaxTreeDepth as number, reMintLimit: resolvedReMintLimit as bigint })
 
-
-    if (treeSize >= fullTreeSize) { throw new Error("Tree is FULL this tx WILL RESULT IS LOSS OF ALL FUNDS SEND. DO NOT SEND ANY BURN TRANSACTION!!!") }
-    if (treeSize + safeDistanceFromFullTree >= fullTreeSize) { throw new Error("Tree is almost full and the risk is high this burn tx will result in loss of all funds send") }
-    if (newBurnBalance >= reMintLimit) { throw new Error(`This transfer will cause the balance to go over the RE_MINT_LIMIT. This wil result in LOSS OF ALL FUNDS OVER THE LIMIT!! DO NOT SEND THIS TRANSACTION!!\n new balance: ${newBurnBalance} \n limit:       ${reMintLimit}`) }
-
-    const estimatedGas = await wormholeTokenFull.estimateGas.transfer([burnAddress, amount], { account: signingEthAccount })
-    return await wormholeTokenFull.write.transfer([burnAddress, amount], { account: signingEthAccount, chain: null, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
+    return await unsafeBurn(tokenAddress, burnAddress, amount, wallet, fullNode, signingEthAccount)
 }
 
 /**
@@ -64,31 +104,22 @@ export async function safeBurn(
     burnAccount: NotOwnedBurnAccount, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
     { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
 ) {
-    // defaults
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
-    isCrossChain ??= await wormholeTokenFull.read.IS_CROSS_CHAIN()
-    difficulty ??= BigInt(await wormholeTokenFull.read.POW_DIFFICULTY())
-
-    // checks
-    if (isCrossChain) {
-        acceptedChainIds ??= (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
-        if (acceptedChainIds.includes(burnAccount.chainId) === false) { throw new Error(`Burn account is on chainId:${burnAccount.chainId} but that is not a valid chainId for token: ${tokenAddress}, only these chainIds are accepted:${acceptedChainIds.toString()}`) }
+    const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
+        isCrossChain ?? wormholeTokenFull.read.IS_CROSS_CHAIN(),
+        difficulty ?? BigInt(await wormholeTokenFull.read.POW_DIFFICULTY()),
+        reMintLimit ?? BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT()),
+        maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
+    ])
+    if (resolvedIsCrossChain && !acceptedChainIds) {
+        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
     }
-    const isValidPow = isValidPowNonce({
-        blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash),
-        powNonce: BigInt(burnAccount.powNonce),
-        difficulty: difficulty
-    })
-    if (isValidPow === false) { throw new Error(`PoW incorrect. Difficulty is ${toHex(difficulty, { size: 32 })} but resulting hash is: ${toHex(hashPow({ blindedAddressDataHash: BigInt(burnAccount.blindedAddressDataHash), powNonce: BigInt(burnAccount.powNonce) }), { size: 32 })}`) }
-    return await burn(
-        burnAccount.burnAddress,
-        amount,
-        tokenAddress,
-        wallet,
-        fullNode,
-        signingEthAccount,
-        { reMintLimit, maxTreeDepth, isCrossChain }
+
+    await burnCheckSafe(
+        burnAccount, amount, tokenAddress, fullNode, signingEthAccount,
+        { reMintLimit: resolvedReMintLimit as bigint, maxTreeDepth: resolvedMaxTreeDepth as number, acceptedChainIds, isCrossChain: resolvedIsCrossChain as boolean, difficulty: resolvedDifficulty as bigint }
     )
+    return await unsafeBurn(tokenAddress, burnAccount.burnAddress, amount, wallet, fullNode, signingEthAccount)
 }
 
 
@@ -108,25 +139,106 @@ export async function superSafeBurn(
     burnAccount: BurnAccount, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
     { difficulty, reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
 ) {
-    // defaults
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
-    difficulty ??= BigInt(await wormholeTokenFull.read.POW_DIFFICULTY())
+    const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
+        isCrossChain ?? wormholeTokenFull.read.IS_CROSS_CHAIN(),
+        difficulty ?? BigInt(await wormholeTokenFull.read.POW_DIFFICULTY()),
+        reMintLimit ?? BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT()),
+        maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
+    ])
+    if (resolvedIsCrossChain && !acceptedChainIds) {
+        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+    }
 
-    // checks
-    const blindedAddressDataHash = hashBlindedAddressData({ spendingPubKeyX: burnAccount.spendingPubKeyX, viewingKey: BigInt(burnAccount.viewingKey), chainId: BigInt(burnAccount.chainId) })
-    const burnAddress = getBurnAddressSafe({ blindedAddressDataHash: blindedAddressDataHash, powNonce: BigInt(burnAccount.powNonce), difficulty: difficulty })
-    if (burnAddress !== getAddress(burnAccount.burnAddress)) { throw new Error(`Burn account address mismatch, recreated burn address as: ${burnAddress} but burnAccount has it's burn address set as ${getAddress(burnAccount.burnAddress)}`) }
-
-    // burn
-    return safeBurn(
-        burnAccount,
-        amount,
-        tokenAddress,
-        wallet,
-        fullNode,
-        signingEthAccount,
-        { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain }
+    await burnCheckSuperSafe(
+        burnAccount, amount, tokenAddress, fullNode, signingEthAccount,
+        { reMintLimit: resolvedReMintLimit as bigint, maxTreeDepth: resolvedMaxTreeDepth as number, acceptedChainIds, isCrossChain: resolvedIsCrossChain as boolean, difficulty: resolvedDifficulty as bigint }
     )
+
+    return await unsafeBurn(tokenAddress, burnAccount.burnAddress, amount, wallet, fullNode, signingEthAccount)
+}
+
+// ── Bulk burn functions (one transferBulk tx) ────────────────────────
+
+async function unsafeBurnBulk(recipientsAndAmounts: { burnAddress: Address, amount: bigint }[], tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address) {
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
+    const burnAddresses = recipientsAndAmounts.map((item) => item.burnAddress)
+    const amounts = recipientsAndAmounts.map((item) => item.amount)
+    const estimatedGas = await wormholeTokenFull.estimateGas.transferBulk([burnAddresses, amounts], { account: signingEthAccount })
+    return await wormholeTokenFull.write.transferBulk([burnAddresses, amounts], { account: signingEthAccount, chain: null, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
+}
+
+export async function burnBulk(
+    recipientsAndAmounts: { burnAddress: Address, amount: bigint }[], tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
+    { reMintLimit, maxTreeDepth }: { reMintLimit?: bigint, maxTreeDepth?: number } = {}
+) {
+    if (recipientsAndAmounts.length === 0) { throw new Error("burnBulk requires at least one item") }
+
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
+    const [resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
+        reMintLimit ?? BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT()),
+        maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
+    ])
+
+    await Promise.all(recipientsAndAmounts.map((item) =>
+        burnCheck(item.burnAddress, item.amount, tokenAddress, fullNode, { maxTreeDepth: resolvedMaxTreeDepth as number, reMintLimit: resolvedReMintLimit as bigint })
+    ))
+
+    return await unsafeBurnBulk(recipientsAndAmounts, tokenAddress, wallet, fullNode, signingEthAccount)
+}
+
+export async function safeBurnBulk(
+    recipientsAndAmounts: { burnAccount: NotOwnedBurnAccount, amount: bigint }[], tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
+    { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
+) {
+    if (recipientsAndAmounts.length === 0) { throw new Error("safeBurnBulk requires at least one item") }
+
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
+    const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
+        isCrossChain ?? wormholeTokenFull.read.IS_CROSS_CHAIN(),
+        difficulty ?? BigInt(await wormholeTokenFull.read.POW_DIFFICULTY()),
+        reMintLimit ?? BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT()),
+        maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
+    ])
+    if (resolvedIsCrossChain && !acceptedChainIds) {
+        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+    }
+
+    await Promise.all(recipientsAndAmounts.map((item) =>
+        burnCheckSafe(item.burnAccount, item.amount, tokenAddress, fullNode, signingEthAccount, {
+            reMintLimit: resolvedReMintLimit as bigint, maxTreeDepth: resolvedMaxTreeDepth as number,
+            acceptedChainIds, isCrossChain: resolvedIsCrossChain as boolean, difficulty: resolvedDifficulty as bigint
+        })
+    ))
+
+    return await unsafeBurnBulk(recipientsAndAmounts.map((item) => ({ burnAddress: item.burnAccount.burnAddress, amount: item.amount })), tokenAddress, wallet, fullNode, signingEthAccount)
+}
+
+export async function superSafeBurnBulk(
+    recipientsAndAmounts: { burnAccount: BurnAccount, amount: bigint }[], tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
+    { difficulty, reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
+) {
+    if (recipientsAndAmounts.length === 0) { throw new Error("superSafeBurnBulk requires at least one item") }
+
+    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { wallet, public: fullNode })
+    const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
+        isCrossChain ?? wormholeTokenFull.read.IS_CROSS_CHAIN(),
+        difficulty ?? BigInt(await wormholeTokenFull.read.POW_DIFFICULTY()),
+        reMintLimit ?? BigInt(await wormholeTokenFull.read.RE_MINT_LIMIT()),
+        maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
+    ])
+    if (resolvedIsCrossChain && !acceptedChainIds) {
+        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+    }
+
+    await Promise.all(recipientsAndAmounts.map((item) =>
+        burnCheckSuperSafe(item.burnAccount, item.amount, tokenAddress, fullNode, signingEthAccount, {
+            reMintLimit: resolvedReMintLimit as bigint, maxTreeDepth: resolvedMaxTreeDepth as number,
+            acceptedChainIds, isCrossChain: resolvedIsCrossChain as boolean, difficulty: resolvedDifficulty as bigint
+        })
+    ))
+
+    return await unsafeBurnBulk(recipientsAndAmounts.map((item) => ({ burnAddress: item.burnAccount.burnAddress, amount: item.amount })), tokenAddress, wallet, fullNode, signingEthAccount)
 }
 
 /**
