@@ -925,13 +925,14 @@ async function proofPrivateTransferBtnHandler() {
     }
 
     try {
-        // 1. start tree sync asap
-        logUi("syncing merkle tree...", true, true, true)
-        const syncedTreePromise = burnWallet.syncTree(wormholeTokenAddress)
-
-        // 2. sync burn accounts
+        // 1. sync tree + accounts concurrently to the same block
         logUi("syncing burn accounts..." + `<br>` + BURN_ACCOUNT_SYNCING_MSG, true, true, true)
-        await burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync: selectedBurnAddresses })
+        const { syncedTree, syncedBurnAccounts } = burnWallet.sync(wormholeTokenAddress, {
+            burnAddressesToSync: selectedBurnAddresses,
+        })
+
+        // 2. wait for accounts (needed before selection)
+        await syncedBurnAccounts
 
         // 3. select burn accounts for spend
         logUi("selecting burn accounts for spend...", true, true, true)
@@ -945,7 +946,7 @@ async function proofPrivateTransferBtnHandler() {
 
         // 5. wait for tree sync
         logUi("waiting for tree sync to finish...", true, true, true)
-        const syncedTree = await syncedTreePromise
+        await syncedTree
 
         // 6. generate proof (animated)
         let dotCount = 0;
@@ -957,7 +958,7 @@ async function proofPrivateTransferBtnHandler() {
                 , true, true, false);
         }, 500);
 
-        const selfRelayInputs = await burnWallet.proof(signed, { syncedTree })
+        const selfRelayInputs = await burnWallet.proof(signed)
         clearInterval(proofInterval)
 
         addRelayInputsToLocalStorage(selfRelayInputs)

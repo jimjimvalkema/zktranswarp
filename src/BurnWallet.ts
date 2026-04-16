@@ -338,7 +338,7 @@ export class BurnWallet {
     async importWallet(
         json: string,
         tokenAddress: Address,
-        { fullSync = true, syncTillBlock, concurrency = 5, merkleTrees = true, onlyImportSigner = false, viewKeyData = true, forceReHashViewKey = true, forceReSign = false, forcePow = false, chainId, onlySignInWith, onAccountImported }: { fullSync?: boolean, syncTillBlock?: bigint, concurrency?: number, onlyImportSigner?: boolean, forceReHashViewKey?: boolean, forceReSign?: boolean, forcePow?: boolean, merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number, onlySignInWith?: Address, onAccountImported?: () => void } = {}
+        { fullSync = true, syncTillBlock, concurrency = 10, merkleTrees = true, onlyImportSigner = false, viewKeyData = true, forceReHashViewKey = true, forceReSign = false, forcePow = false, chainId, onlySignInWith, onAccountImported }: { fullSync?: boolean, syncTillBlock?: bigint, concurrency?: number, onlyImportSigner?: boolean, forceReHashViewKey?: boolean, forceReSign?: boolean, forcePow?: boolean, merkleTrees?: boolean, viewKeyData?: boolean, chainId?: number, onlySignInWith?: Address, onAccountImported?: () => void } = {}
     ) {
         if (onlyImportSigner && onlySignInWith) { throw new Error(`please set onlyImportSigner:false when specifying onlySignInWith,  ex: BurnWaller.importWallet(json, ${tokenAddress}, {onlyImportSigner:false, onlySignInWith:[${onlySignInWith.toString()}]), ...yourOtherOptions}`) }
         if (onlyImportSigner) {
@@ -398,7 +398,7 @@ export class BurnWallet {
      *  const proof = await burnWallet.proof(signed, ...) */
     sync(
         tokenAddress: Address,
-        { concurrency = 5, syncTillBlock, chainId, deploymentBlock, blocksPerGetLogsReq, burnAddressesToSync, signingEthAccount, maxNonce }:
+        { concurrency = 10, syncTillBlock, chainId, deploymentBlock, blocksPerGetLogsReq, burnAddressesToSync, signingEthAccount, maxNonce }:
             { concurrency?: number, syncTillBlock?: bigint, chainId?: number, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint } = {}
     ) {
         const syncedTillBlock = syncTillBlock
@@ -429,7 +429,7 @@ export class BurnWallet {
         return syncedTree
     }
 
-    async syncBurnAccounts(tokenAddress: Address, { concurrency = 5, chainId, burnAddressesToSync, signingEthAccount, maxNonce, syncTillBlock, onAccountSynced }: { concurrency?: number, syncTillBlock?: bigint, chainId?: number, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint, onAccountSynced?: (burnAccount: BurnAccount) => void } = {}) {
+    async syncBurnAccounts(tokenAddress: Address, { concurrency = 10, chainId, burnAddressesToSync, signingEthAccount, maxNonce, syncTillBlock, onAccountSynced }: { concurrency?: number, syncTillBlock?: bigint, chainId?: number, burnAddressesToSync?: Address[], signingEthAccount?: Address, maxNonce?: bigint, onAccountSynced?: (burnAccount: BurnAccount) => void } = {}) {
         [chainId, signingEthAccount, syncTillBlock] = await Promise.all([
             chainId ?? this.viemWallet.getChainId(),
             signingEthAccount ?? this.defaultSigner(),
@@ -548,11 +548,12 @@ export class BurnWallet {
     ): Promise<SelfRelayInputs>;
     async easyProof(
         tokenAddress: Address, recipient: Address, amount: bigint,
-        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData"> & { signingEthAccount?: Address, chainId?: number, feeData?: FeeDataOptionals } = {}
+        opts: Omit<CreateRelayerInputsOpts, "fullNode" | "powDifficulty" | "maxTreeDepth" | "chainId" | "circuitSizes" | "preSyncedTree" | "feeData" > & { signingEthAccount?: Address, chainId?: number, feeData?: FeeDataOptionals } = {}
     ) {
         const signingEthAccount = opts.signingEthAccount ? opts.signingEthAccount : await this.defaultSigner()
         delete opts.signingEthAccount
         const chainId = opts.chainId ?? await this.viemWallet.getChainId()
+        opts.syncTillBlock ??= await this.getBlockNumber(chainId)
 
         const [contractConfig, archiveNode, fullNode, preSyncedTree] = await Promise.all([
             this.#getContractConfig(tokenAddress, chainId),

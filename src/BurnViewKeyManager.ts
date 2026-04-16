@@ -389,7 +389,7 @@ export class BurnViewKeyManager {
     // import
     async importViewKeyWalletData(
         importedViewKeyData: ExportedViewKeyData<BurnAccountImportable | BurnAccountRecoverable>, tokenAddress: Address, archiveNode: PublicClient,
-        { fullSync = true, syncTillBlock, forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode, onlySignInWith, concurrency = 15, onAccountImported }: { fullSync?: boolean, syncTillBlock?: bigint, forceReSign?: boolean, forceReHashViewKey?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient, onlySignInWith?: Address, concurrency?: number, onAccountImported?: () => void } = {}
+        { fullSync = true, syncTillBlock, forceReSign = false, forceReHashViewKey = true, forcePow = false, async = false, fullNode, onlySignInWith, concurrency = 10, onAccountImported }: { fullSync?: boolean, syncTillBlock?: bigint, forceReSign?: boolean, forceReHashViewKey?: boolean, forcePow?: boolean, async?: boolean, fullNode?: PublicClient, onlySignInWith?: Address, concurrency?: number, onAccountImported?: () => void } = {}
     ) {
         fullNode ??= archiveNode;
         syncTillBlock ??= BigInt(await fullNode.getBlockNumber())

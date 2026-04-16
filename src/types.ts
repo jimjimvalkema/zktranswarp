@@ -190,6 +190,7 @@ export interface SignedProofInputs {
 export type BackendPerSize = { [key: number]: UltraHonkBackend }
 //functions
 export type CreateRelayerInputsOpts = {
+    syncTillBlock?: bigint,
     burnAccountSelector?: BurnAccountSelector
     fullNode?: PublicClient
     threads?: number;

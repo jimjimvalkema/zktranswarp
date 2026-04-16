@@ -458,13 +458,14 @@ export async function createRelayerInputs(
     tokenAddress: Address,
     archiveNode: PublicClient,
     signingEthAccount: Address,
-    { burnAccountSelector = selectSmallFirst, allowedChainIds, fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
+    { burnAccountSelector = selectSmallFirst,syncTillBlock, allowedChainIds, fullNode, circuitSizes, threads, chainId, callData = "0x", callValue = 0n, callCanFail = false, feeData, burnAddresses, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, powDifficulty, reMintLimit, maxTreeDepth, eip712Name, eip712Version, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD }:
         CreateRelayerInputsOpts & { feeData?: FeeData } = {}
 ): Promise<{ relayInputs: RelayInputs, syncedData: { lastSyncedBlock: bigint, syncedBurnAccounts: SyncedBurnAccount[], syncedTree: PreSyncedTree, syncedPrivateWallet: BurnViewKeyManager } } | { relayInputs: SelfRelayInputs, syncedData: { lastSyncedBlock: bigint, syncedBurnAccounts: SyncedBurnAccount[], syncedTree: PreSyncedTree, burnViewKeyManager: BurnViewKeyManager } }> {
     //------- set defaults ----------------
     tokenAddress = getAddress(tokenAddress)
     signingEthAccount = getAddress(signingEthAccount)
     fullNode ??= archiveNode
+    syncTillBlock ??= await fullNode.getBlockNumber()
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode });
     [circuitSizes, powDifficulty, allowedChainIds, reMintLimit, chainId, maxTreeDepth] = await Promise.all([
         circuitSizes ?? getCircuitSizesFromContract(wormholeTokenFull as WormholeToken),
@@ -492,7 +493,8 @@ export async function createRelayerInputs(
             fullNode,
             preSyncedTree,
             deploymentBlock,
-            blocksPerGetLogsReq
+            blocksPerGetLogsReq,
+            syncTillBlock
         }
     )
 
@@ -501,7 +503,8 @@ export async function createRelayerInputs(
         burnViewKeyManager,
         tokenAddress,
         archiveNode,
-        {
+        {   
+            syncTillBlock,
             burnAddressesToSync: burnAddresses, //@notice, only syncs these addresses!
             //ethAccounts: [ethAccount]         // we already know which burn addresses, we don't need to filter based on signer account
         }
