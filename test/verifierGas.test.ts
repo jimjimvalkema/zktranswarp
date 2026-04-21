@@ -4,7 +4,7 @@ import { network } from "hardhat";
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js";
 
 import {
-    WormholeTokenContractName,
+    TranswarpTokenContractName,
     reMint3InVerifierContractName,
     reMint32InVerifierContractName,
     reMint100InVerifierContractName,
@@ -65,8 +65,8 @@ describe("Verifier gas", async function () {
         100: { address: reMintVerifier100.address, abi: reMintVerifier100.abi },
     };
 
-    const wormholeToken = await viem.deployContract(
-        WormholeTokenContractName,
+    const transwarpToken = await viem.deployContract(
+        TranswarpTokenContractName,
         [
             toHex(POW_DIFFICULTY, { size: 32 }),
             RE_MINT_LIMIT,
@@ -103,16 +103,16 @@ describe("Verifier gas", async function () {
                 acceptedChainIds: [chainId],
             });
 
-            const wormholeTokenAlice = getContract({
+            const transwarpTokenAlice = getContract({
                 client: { public: publicClient, wallet: alice },
-                abi: wormholeToken.abi,
-                address: wormholeToken.address,
+                abi: transwarpToken.abi,
+                address: transwarpToken.address,
             });
-            await wormholeTokenAlice.write.getFreeTokens([alice.account.address]);
+            await transwarpTokenAlice.write.getFreeTokens([alice.account.address]);
 
-            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken.address);
+            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, transwarpToken.address);
             const aliceBurnAccounts = await aliceBurnWallet.createBurnAccountsBulk(
-                wormholeToken.address,
+                transwarpToken.address,
                 amountOfBurnAccounts,
                 { startingViewKeyIndex: 0 },
             );
@@ -121,14 +121,14 @@ describe("Verifier gas", async function () {
             const reMintAmount = 420n * 10n ** 18n;
             for (const aliceBurnAccount of aliceBurnAccounts) {
                 await aliceBurnWallet.superSafeBurn(
-                    wormholeToken.address,
+                    transwarpToken.address,
                     reMintAmount / BigInt(amountOfBurnAccounts) + 1n,
                     aliceBurnAccount,
                 );
             }
 
             const selfRelayInputs = await aliceBurnWallet.easyProof(
-                wormholeToken.address,
+                transwarpToken.address,
                 bob.account.address,
                 reMintAmount,
                 {
@@ -140,7 +140,7 @@ describe("Verifier gas", async function () {
             );
 
             // Reconstruct the exact bytes32[] publicInputs the contract feeds the verifier.
-            // Reuse WormholeToken._formatPublicInputs (it's public) so we don't duplicate that logic here.
+            // Reuse TranswarpToken._formatPublicInputs (it's public) so we don't duplicate that logic here.
             const _totalMintedLeafs = selfRelayInputs.publicInputs.burn_data_public.map((v) =>
                 BigInt(v.total_minted_leaf),
             );
@@ -149,7 +149,7 @@ describe("Verifier gas", async function () {
             const _chainId = BigInt(selfRelayInputs.publicInputs.chain_id);
             const _amount = BigInt(selfRelayInputs.signatureInputs.amountToReMint);
             // signatureHash is computed inside reMint(); recompute via the helper on the contract
-            const signatureHash = await wormholeToken.read._hashSignatureInputs([
+            const signatureHash = await transwarpToken.read._hashSignatureInputs([
                 {
                     //contract: selfRelayInputs.signatureInputs.contract,
                     amountToReMint: _amount,
@@ -160,7 +160,7 @@ describe("Verifier gas", async function () {
                     callValue: BigInt(selfRelayInputs.signatureInputs.callValue),
                 },
             ]);
-            const publicInputs = (await wormholeToken.read._formatPublicInputs([
+            const publicInputs = (await transwarpToken.read._formatPublicInputs([
                 _root,
                 _chainId,
                 _amount,

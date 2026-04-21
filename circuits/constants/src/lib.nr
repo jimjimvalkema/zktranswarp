@@ -1,9 +1,9 @@
 // @TODO make more accurate statements based on gas instead of tps
 // ---------- why max tree depth 42 --------------------
 // const erc20Tps = 35_000;
-// const zkwormholeTps = erc20Tps / 10;
+// const zktranswarpTps = erc20Tps / 10;
 // const bulkMerkleInserts = 1; // becomes relevant once large reMints emitting multiple commitments are more gas efficient then simple burns. 
-// const insertsPerYear = bulkMerkleInserts * zkwormholeTps * 60*60*24*365;
+// const insertsPerYear = bulkMerkleInserts * zktranswarpTps * 60*60*24*365;
 // const treeDepth = 44;
 // (2**treeDepth) / insertsPerYear
 

@@ -2,8 +2,8 @@ import { createPublicClient, createWalletClient, custom, formatUnits, getAddress
 import type { Address, Hex, WalletClient } from 'viem'
 import { sepolia } from 'viem/chains'
 import 'viem/window';
-import type { WormholeToken, SelfRelayInputs, BurnAccount, WormholeContractConfig } from '../src/types.js';
-import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
+import type { TranswarpToken, SelfRelayInputs, BurnAccount, TranswarpContractConfig } from '../src/types.js';
+import TranswarpTokenArtifact from '../artifacts/contracts/TranswarpToken.sol/TranswarpToken.json' with {"type": "json"};
 import sepoliaDeployments from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
 
 import * as viem from 'viem'
@@ -36,7 +36,7 @@ const CREATING_PROOF_MSG = `The circuit verifies a signature which is a signed h
 <br>Only the viewing key can be compromised not the users funds, if the ui is compromised. (or even machine in case of hardware wallets).
 `
 
-const defaultWormholeTokenAddress = sepoliaDeployments['wormholeToken#WormholeToken'] as Address;
+const defaultTranswarpTokenAddress = sepoliaDeployments['transwarpToken#TranswarpToken'] as Address;
 
 // read token address from URL ?token=0x... or fall back to deployed default
 function getTokenAddressFromUrl(): Address {
@@ -47,7 +47,7 @@ function getTokenAddressFromUrl(): Address {
             return getAddress(tokenParam)
         } catch { /* invalid address, ignore */ }
     }
-    return defaultWormholeTokenAddress
+    return defaultTranswarpTokenAddress
 }
 
 function setTokenAddressInUrl(address: Address) {
@@ -56,14 +56,14 @@ function setTokenAddressInUrl(address: Address) {
     window.history.replaceState({}, '', url.toString())
 }
 
-let wormholeTokenAddress = getTokenAddressFromUrl()
-setTokenAddressInUrl(wormholeTokenAddress)
+let transwarpTokenAddress = getTokenAddressFromUrl()
+setTokenAddressInUrl(transwarpTokenAddress)
 
 //@ts-ignore
-window.wormholeTokenAddress = wormholeTokenAddress
+window.transwarpTokenAddress = transwarpTokenAddress
 //@ts-ignore
 window.viem = viem
-console.log({ wormholeTokenAddress })
+console.log({ transwarpTokenAddress })
 
 const logEl = document.getElementById("messages")
 const errorEl = document.getElementById("errors")
@@ -128,9 +128,9 @@ const publicClient = createPublicClient({
     transport: http(process.env.ETHEREUM_RPC),
 })
 
-let wormholeToken = getContract({ abi: WormholeTokenArtifact.abi, address: wormholeTokenAddress, client: { public: publicClient } }) as unknown as WormholeToken
-tokenAddressInputEl.value = wormholeTokenAddress
-const contractConfig = await getContractConfig(wormholeTokenAddress, publicClient)
+let transwarpToken = getContract({ abi: TranswarpTokenArtifact.abi, address: transwarpTokenAddress, client: { public: publicClient } }) as unknown as TranswarpToken
+tokenAddressInputEl.value = transwarpTokenAddress
+const contractConfig = await getContractConfig(transwarpTokenAddress, publicClient)
 //@ts-ignore
 window.contractConfig = contractConfig
 setNonWalletInfo(contractConfig)
@@ -176,15 +176,15 @@ async function txInUi(txHash: Hex) {
 // --- localStorage relay queue ---
 
 export function addToLocalStorage(key: string, item: any) {
-    let localStore = JSON.parse(localStorage.getItem(wormholeTokenAddress) || '{}')
+    let localStore = JSON.parse(localStorage.getItem(transwarpTokenAddress) || '{}')
     localStore[key] = item
-    localStorage.setItem(wormholeTokenAddress, JSON.stringify(localStore))
+    localStorage.setItem(transwarpTokenAddress, JSON.stringify(localStore))
 }
 //@ts-ignore
 window.addToLocalStorage = addToLocalStorage
 
 export function getFromLocalStorage(key: string) {
-    let localStore = JSON.parse(localStorage.getItem(wormholeTokenAddress) || '{}')
+    let localStore = JSON.parse(localStorage.getItem(transwarpTokenAddress) || '{}')
     return localStore[key]
 }
 
@@ -203,7 +203,7 @@ export async function getRelayInputsFromLocalStorage(): Promise<SelfRelayInputs[
     const allRelayerInputClean: SelfRelayInputs[] = []
     for (const relayerInput of allRelayerInputs) {
 
-        const blockNumbers = await Promise.all(relayerInput.publicInputs.burn_data_public.map((bData) => wormholeToken.read.nullifiers([BigInt(bData.nullifier)])))
+        const blockNumbers = await Promise.all(relayerInput.publicInputs.burn_data_public.map((bData) => transwarpToken.read.nullifiers([BigInt(bData.nullifier)])))
         if (blockNumbers.every((b) => b === 0n)) {
             allRelayerInputClean.push(relayerInput)
         }
@@ -239,7 +239,7 @@ function loadBurnWalletData(): string | null {
 
 // ---
 
-async function setNonWalletInfo(contractConfig: WormholeContractConfig) {
+async function setNonWalletInfo(contractConfig: TranswarpContractConfig) {
     const amountFreeTokens = contractConfig.amountFreeTokens
     const name = contractConfig.tokenName
     const ticker = contractConfig.tokenSymbol
@@ -253,14 +253,14 @@ async function setNonWalletInfo(contractConfig: WormholeContractConfig) {
 // --- wallet info ui ---
 
 async function updateWalletInfoUi(
-    wormholeTokenWallet: WormholeToken,
+    transwarpTokenWallet: TranswarpToken,
     publicAddress: Address,
     showBurnMsg = false,
 ) {
 
     everyClass(".publicAddress", (el) => el.innerText = publicAddress)
-    const decimals = Number(await wormholeTokenWallet.read.decimals())
-    const publicBalance = await wormholeTokenWallet.read.balanceOf([publicAddress])
+    const decimals = Number(await transwarpTokenWallet.read.decimals())
+    const publicBalance = await transwarpTokenWallet.read.balanceOf([publicAddress])
     everyClass(".publicBalance", (el) => el.innerText = formatUnits(publicBalance, decimals))
     //@ts-ignore
     const burnWallet = window.burnWallet as BurnWallet | undefined
@@ -268,7 +268,7 @@ async function updateWalletInfoUi(
 
     let allBurnAccounts: BurnAccount[]
     try {
-        allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenWallet.address, { type: "derived" })
+        allBurnAccounts = await burnWallet.getBurnAccounts(transwarpTokenWallet.address, { type: "derived" })
     } catch {
         return
     }
@@ -288,12 +288,12 @@ async function updateWalletInfoUi(
         }, 500);
         const burnAddressesToSync = allBurnAccounts.map((ba) => ba.burnAddress)
         startSyncDotAnimation()
-        burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync, onAccountSynced: () => debouncedReRenderBurnAccounts(burnWallet) })
+        burnWallet.syncBurnAccounts(transwarpTokenAddress, { burnAddressesToSync, onAccountSynced: () => debouncedReRenderBurnAccounts(burnWallet) })
             .then(async () => {
                 await sleep(500)
                 clearInterval(powInterval);
                 stopSyncDotAnimation()
-                const synced = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+                const synced = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
                 saveBurnWallet(burnWallet)
                 updateBurnAccountsListUi(synced, decimals)
             })
@@ -313,7 +313,7 @@ function debouncedReRenderBurnAccounts(burnWallet: BurnWallet, intervalMs = 500)
     progressRenderTimeout = setTimeout(async () => {
         progressRenderTimeout = null
         try {
-            const latest = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+            const latest = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
             updateBurnAccountsListUi(latest, cachedDecimals)
         } catch { }
     }, intervalMs)
@@ -335,7 +335,7 @@ function updateTotalSelectedSpendable() {
         const ba = cachedBurnAccounts.find((b) => b?.burnAddress === addr)
         if (ba && 'syncData' in ba && ba.syncData) {
             const chainId = toHex(sepolia.id)
-            const syncEntry = ba.syncData[chainId]?.[wormholeTokenAddress]
+            const syncEntry = ba.syncData[chainId]?.[transwarpTokenAddress]
             if (syncEntry) {
                 total += BigInt(syncEntry.spendableBalance)
             }
@@ -434,7 +434,7 @@ function updateBurnAccountsListUi(burnAccounts: BurnAccount[], decimals: number)
 
             const chainId = toHex(sepolia.id)
             const syncEntry = ('syncData' in burnAccount && burnAccount.syncData)
-                ? burnAccount.syncData[chainId]?.[wormholeTokenAddress]
+                ? burnAccount.syncData[chainId]?.[transwarpTokenAddress]
                 : undefined
 
             const cbLabel = document.createElement("label")
@@ -530,16 +530,16 @@ async function connectPublicWallet() {
         //@ts-ignore
         window.publicWallet = walletClient
 
-        const wormholeTokenWallet = getContract({
-            abi: WormholeTokenArtifact.abi,
-            address: wormholeTokenAddress,
+        const transwarpTokenWallet = getContract({
+            abi: TranswarpTokenArtifact.abi,
+            address: transwarpTokenAddress,
             client: { wallet: walletClient, public: publicClient }
-        }) as unknown as WormholeToken
+        }) as unknown as TranswarpToken
 
         //@ts-ignore
-        window.wormholeTokenWallet = wormholeTokenWallet
+        window.transwarpTokenWallet = transwarpTokenWallet
         // tree sync is handled by connectBurnWallet / getBurnWallet, not here
-        updateWalletInfoUi(wormholeTokenWallet, addresses[0])
+        updateWalletInfoUi(transwarpTokenWallet, addresses[0])
         return { address: addresses[0], publicWallet: walletClient }
     } catch (error) {
         errorUi("wallet connection failed. try installing metamask?", error)
@@ -555,10 +555,10 @@ async function getPublicWallet() {
     //@ts-ignore
     const publicWallet = window.publicWallet as WalletClient
     //@ts-ignore
-    const wormholeTokenWallet = window.wormholeTokenWallet as WormholeToken
+    const transwarpTokenWallet = window.transwarpTokenWallet as TranswarpToken
     //@ts-ignore
     const publicAddress = window.publicAddress as Address
-    return { publicWallet, wormholeTokenWallet, publicAddress }
+    return { publicWallet, transwarpTokenWallet, publicAddress }
 }
 
 /**
@@ -569,12 +569,12 @@ async function getPublicWallet() {
 async function ensurePageAccounts(page: number, burnWallet: BurnWallet, clearMsg = true) {
     const startIndex = page * BURN_ACCOUNTS_PER_PAGE
     const endIndex = startIndex + BURN_ACCOUNTS_PER_PAGE
-    const decimals = Number(await wormholeToken.read.decimals())
+    const decimals = Number(await transwarpToken.read.decimals())
     // figure out which indices need generating
     const indicesToGenerate: number[] = []
     let allBurnAccounts: BurnAccount[]
     try {
-        allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+        allBurnAccounts = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
     } catch {
         allBurnAccounts = []
     }
@@ -593,13 +593,13 @@ async function ensurePageAccounts(page: number, burnWallet: BurnWallet, clearMsg
         `<br><br>` + POW_EXPLANATION_MSG + `<br><br>`
         , clearMsg, true)
     const perAccountPromises = indicesToGenerate.map((i) =>
-        burnWallet.createBurnAccount(wormholeTokenAddress, { async: true, viewingKeyIndex: i })
+        burnWallet.createBurnAccount(transwarpTokenAddress, { async: true, viewingKeyIndex: i })
             .then(async (ba) => {
-                await burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync: [ba.burnAddress] })
+                await burnWallet.syncBurnAccounts(transwarpTokenAddress, { burnAddressesToSync: [ba.burnAddress] })
                 saveBurnWallet(burnWallet)
                 // re-render so this account replaces its placeholder
                 if (currentBurnPage === page) {
-                    const updatedBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+                    const updatedBurnAccounts = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
                     updateBurnAccountsListUi(updatedBurnAccounts, decimals)
                 }
             })
@@ -609,7 +609,7 @@ async function ensurePageAccounts(page: number, burnWallet: BurnWallet, clearMsg
 }
 
 async function connectBurnWallet() {
-    const { publicWallet, publicAddress, wormholeTokenWallet } = await getPublicWallet()
+    const { publicWallet, publicAddress, transwarpTokenWallet } = await getPublicWallet()
 
     const chainId = await publicClient.getChainId()
 
@@ -627,14 +627,14 @@ async function connectBurnWallet() {
 
     // start merkle tree sync in background (before import so they run concurrently)
     startTreeSyncAnimation()
-    burnWallet.syncTree(wormholeTokenAddress)
+    burnWallet.syncTree(transwarpTokenAddress)
         .then(() => { stopTreeSyncAnimation(); saveBurnWallet(burnWallet) })
         .catch(e => { stopTreeSyncAnimation(); console.warn("background tree sync failed", e) })
 
     if (storedData) {
         logUi("restoring private wallet from local storage...\n please sign the message in your wallet", true)
         importInProgress = true
-        await burnWallet.importWallet(storedData, wormholeTokenAddress, {
+        await burnWallet.importWallet(storedData, transwarpTokenAddress, {
             forceReSign: false, onlyImportSigner: true,
             onAccountImported: () => debouncedReRenderBurnAccounts(burnWallet)
         })
@@ -647,8 +647,8 @@ async function connectBurnWallet() {
     await ensurePageAccounts(0, burnWallet, false)
     saveBurnWallet(burnWallet)
 
-    const decimals = (await burnWallet.getContractConfig(wormholeToken.address)).tokenDecimals
-    const allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+    const decimals = (await burnWallet.getContractConfig(transwarpToken.address)).tokenDecimals
+    const allBurnAccounts = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
     updateBurnAccountsListUi(allBurnAccounts, decimals)
 
     logUi("done! created private wallet with burn addresses", false, true)
@@ -659,7 +659,7 @@ async function reconnectBurnWalletSigner(burnWallet: BurnWallet, walletClient: W
     const storedData = loadBurnWalletData()
     if (storedData) {
         importInProgress = true
-        await burnWallet.importWallet(storedData, wormholeTokenAddress, {
+        await burnWallet.importWallet(storedData, transwarpTokenAddress, {
             forceReSign: false, onlyImportSigner: true,
             onAccountImported: () => debouncedReRenderBurnAccounts(burnWallet)
         })
@@ -667,13 +667,13 @@ async function reconnectBurnWalletSigner(burnWallet: BurnWallet, walletClient: W
         stopSyncDotAnimation()
     }
     startTreeSyncAnimation()
-    burnWallet.syncTree(wormholeTokenAddress)
+    burnWallet.syncTree(transwarpTokenAddress)
         .then(() => { stopTreeSyncAnimation(); saveBurnWallet(burnWallet) })
         .catch(e => { stopTreeSyncAnimation(); console.warn("background tree sync failed", e) })
 }
 
 async function getBurnWallet() {
-    const { publicWallet, wormholeTokenWallet, publicAddress } = await getPublicWallet()
+    const { publicWallet, transwarpTokenWallet, publicAddress } = await getPublicWallet()
     if ("burnWallet" in window === false) {
         await connectBurnWallet()
     } else if (publicWallet.account?.address !== (window.burnWallet as BurnWallet).viemWallet.account?.address) {
@@ -682,52 +682,52 @@ async function getBurnWallet() {
 
     //@ts-ignore
     const burnWallet = window.burnWallet as BurnWallet
-    return { publicWallet, wormholeTokenWallet, publicAddress, burnWallet }
+    return { publicWallet, transwarpTokenWallet, publicAddress, burnWallet }
 }
 
 // --- post-tx refresh ---
 
 async function refreshAfterTx() {
     const burnWallet = (window as any).burnWallet as BurnWallet | undefined
-    const wormholeTokenWallet = (window as any).wormholeTokenWallet as WormholeToken | undefined
+    const transwarpTokenWallet = (window as any).transwarpTokenWallet as TranswarpToken | undefined
     const publicAddress = (window as any).publicAddress as Address | undefined
 
-    if (!wormholeTokenWallet || !publicAddress) return
+    if (!transwarpTokenWallet || !publicAddress) return
 
-    const decimals = Number(await wormholeToken.read.decimals())
+    const decimals = Number(await transwarpToken.read.decimals())
 
     // update public balance
-    const publicBalance = await wormholeTokenWallet.read.balanceOf([publicAddress])
+    const publicBalance = await transwarpTokenWallet.read.balanceOf([publicAddress])
     everyClass(".publicBalance", (el) => el.innerText = formatUnits(publicBalance, decimals))
 
     if (!burnWallet) return
 
     let allBurnAccounts: BurnAccount[]
     try {
-        allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+        allBurnAccounts = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
     } catch { return }
 
     if (allBurnAccounts.length === 0) return
 
     const burnAddressesToSync = allBurnAccounts.map((ba) => ba.burnAddress)
-    await burnWallet.syncBurnAccounts(wormholeTokenAddress, { burnAddressesToSync })
+    await burnWallet.syncBurnAccounts(transwarpTokenAddress, { burnAddressesToSync })
 
     // re-fetch after sync and update UI
-    const synced = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+    const synced = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
     saveBurnWallet(burnWallet)
     updateBurnAccountsListUi(synced, decimals)
 
     // refresh public balance again in case it changed during sync (e.g. relay)
-    const updatedPublicBalance = await wormholeTokenWallet.read.balanceOf([publicAddress])
+    const updatedPublicBalance = await transwarpTokenWallet.read.balanceOf([publicAddress])
     everyClass(".publicBalance", (el) => el.innerText = formatUnits(updatedPublicBalance, decimals))
 }
 
 // --- handlers ---
 
 async function mintBtnHandler() {
-    const { publicAddress, wormholeTokenWallet } = await getPublicWallet()
+    const { publicAddress, transwarpTokenWallet } = await getPublicWallet()
     try {
-        const tx = await wormholeTokenWallet.write.getFreeTokens([publicAddress], { account: publicAddress, chain: sepolia })
+        const tx = await transwarpTokenWallet.write.getFreeTokens([publicAddress], { account: publicAddress, chain: sepolia })
         await txInUi(tx)
     } catch (error) {
         errorUi("aaa that didn't work :( did you cancel it?", error)
@@ -758,8 +758,8 @@ async function nextBurnAccountsPageHandler() {
             errorUi("failed to generate burn addresses for next page", error)
             return
         }
-        const decimals = Number(await wormholeToken.read.decimals())
-        const updated = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+        const decimals = Number(await transwarpToken.read.decimals())
+        const updated = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
         updateBurnAccountsListUi(updated, decimals)
         logUi(`page ${currentBurnPage + 1} ready`, false, true)
     }
@@ -794,8 +794,8 @@ async function setToPublicAddressBtnHandler(where: HTMLElement) {
 }
 
 async function transferBtnHandler() {
-    const { wormholeTokenWallet, publicAddress } = await getPublicWallet()
-    const decimals = Number(await wormholeToken.read.decimals())
+    const { transwarpTokenWallet, publicAddress } = await getPublicWallet()
+    const decimals = Number(await transwarpToken.read.decimals())
     const amount = parseUnits((transferAmountInputEl as HTMLInputElement).value, decimals)
 
     let to: Address
@@ -807,8 +807,8 @@ async function transferBtnHandler() {
     }
 
     try {
-        const estimatedGas = await wormholeTokenWallet.estimateGas.transfer([to, amount], { account: publicAddress })
-        const tx = await wormholeTokenWallet.write.transfer([to, amount], { chain: sepolia, account: publicAddress, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
+        const estimatedGas = await transwarpTokenWallet.estimateGas.transfer([to, amount], { account: publicAddress })
+        const tx = await transwarpTokenWallet.write.transfer([to, amount], { chain: sepolia, account: publicAddress, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
         await txInUi(tx)
     } catch (error) {
         errorUi("Something wrong, did you cancel?", error)
@@ -819,8 +819,8 @@ async function transferBtnHandler() {
 }
 
 async function burnBtnHandler() {
-    const { wormholeTokenWallet, publicAddress, burnWallet } = await getBurnWallet()
-    const decimals = Number(await wormholeToken.read.decimals())
+    const { transwarpTokenWallet, publicAddress, burnWallet } = await getBurnWallet()
+    const decimals = Number(await transwarpToken.read.decimals())
 
     const to = burnRecipientSelectEl.value as Address
     if (!to) {
@@ -837,7 +837,7 @@ async function burnBtnHandler() {
     }
 
     // superSafeBurn needs a burn account — verify the recipient matches a known one
-    const allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+    const allBurnAccounts = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
     const targetBurnAccount = allBurnAccounts.find((b) => b.burnAddress === to)
     if (!targetBurnAccount) {
         logUi("WARNING: not a known burn address")
@@ -846,7 +846,7 @@ async function burnBtnHandler() {
 
     logUi("running superSafeBurn checks and sending tx...", true)
     try {
-        const txHash = await burnWallet.superSafeBurn(wormholeTokenAddress, amount, targetBurnAccount)
+        const txHash = await burnWallet.superSafeBurn(transwarpTokenAddress, amount, targetBurnAccount)
         await txInUi(txHash as Hex)
     } catch (error) {
         errorUi("safe burn failed", error)
@@ -858,7 +858,7 @@ async function burnBtnHandler() {
 
 async function bulkBurnBtnHandler() {
     const { burnWallet } = await getBurnWallet()
-    const decimals = Number(await wormholeToken.read.decimals())
+    const decimals = Number(await transwarpToken.read.decimals())
 
     let amountPerAddress: bigint
     try {
@@ -874,7 +874,7 @@ async function bulkBurnBtnHandler() {
         return
     }
 
-    const allBurnAccounts = await burnWallet.getBurnAccounts(wormholeTokenAddress, { type: "derived" })
+    const allBurnAccounts = await burnWallet.getBurnAccounts(transwarpTokenAddress, { type: "derived" })
     const recipientsAndAmounts: { burnAccount: BurnAccount, amount: bigint }[] = []
     for (const address of selected) {
         const burnAccount = allBurnAccounts.find((b) => b.burnAddress === address)
@@ -887,7 +887,7 @@ async function bulkBurnBtnHandler() {
 
     logUi(`running superSafeBurnBulk checks and sending tx for ${selected.length} addresses...`, true)
     try {
-        const txHash = await burnWallet.superSafeBurnBulk(wormholeTokenAddress, recipientsAndAmounts)
+        const txHash = await burnWallet.superSafeBurnBulk(transwarpTokenAddress, recipientsAndAmounts)
         await txInUi(txHash as Hex)
     } catch (error) {
         errorUi("bulk burn failed", error)
@@ -898,8 +898,8 @@ async function bulkBurnBtnHandler() {
 }
 
 async function proofPrivateTransferBtnHandler() {
-    const { wormholeTokenWallet, publicAddress, burnWallet } = await getBurnWallet()
-    const decimals = Number(await wormholeToken.read.decimals())
+    const { transwarpTokenWallet, publicAddress, burnWallet } = await getBurnWallet()
+    const decimals = Number(await transwarpToken.read.decimals())
 
     let recipient: Address
     try {
@@ -927,7 +927,7 @@ async function proofPrivateTransferBtnHandler() {
     try {
         // 1. sync tree + accounts concurrently to the same block
         logUi("syncing burn accounts..." + `<br>` + BURN_ACCOUNT_SYNCING_MSG, true, true, true)
-        const { syncedTree, syncedBurnAccounts } = burnWallet.sync(wormholeTokenAddress, {
+        const { syncedTree, syncedBurnAccounts } = burnWallet.sync(transwarpTokenAddress, {
             burnAddressesToSync: selectedBurnAddresses,
         })
 
@@ -936,7 +936,7 @@ async function proofPrivateTransferBtnHandler() {
 
         // 3. select burn accounts for spend
         logUi("selecting burn accounts for spend...", true, true, true)
-        const selection = await burnWallet.selectBurnAccountsForSpend(wormholeTokenAddress, amount, {
+        const selection = await burnWallet.selectBurnAccountsForSpend(transwarpTokenAddress, amount, {
             burnAddresses: selectedBurnAddresses,
         })
 
@@ -974,10 +974,10 @@ async function proofPrivateTransferBtnHandler() {
 async function listPendingRelayTxs() {
     pendingRelayTxsEl!.innerHTML = ""
     const relayInputs = await getRelayInputsFromLocalStorage()
-    const decimals = Number(await wormholeToken.read.decimals())
+    const decimals = Number(await transwarpToken.read.decimals())
     for (const relayInput of relayInputs) {
         const relayFunc = async () => {
-            const { publicAddress, wormholeTokenWallet, publicWallet } = await getPublicWallet()
+            const { publicAddress, transwarpTokenWallet, publicWallet } = await getPublicWallet()
             //@ts-ignore
             const burnWallet = window.burnWallet as BurnWallet | undefined
             try {
@@ -1021,13 +1021,13 @@ async function loadTokenHandler() {
     tokenLoadStatusEl!.textContent = "loading..."
 
     // update globals
-    wormholeTokenAddress = newAddress
+    transwarpTokenAddress = newAddress
     //@ts-ignore
-    window.wormholeTokenAddress = wormholeTokenAddress
-    setTokenAddressInUrl(wormholeTokenAddress)
+    window.transwarpTokenAddress = transwarpTokenAddress
+    setTokenAddressInUrl(transwarpTokenAddress)
 
     // recreate read-only contract
-    wormholeToken = getContract({ abi: WormholeTokenArtifact.abi, address: wormholeTokenAddress, client: { public: publicClient } }) as unknown as WormholeToken
+    transwarpToken = getContract({ abi: TranswarpTokenArtifact.abi, address: transwarpTokenAddress, client: { public: publicClient } }) as unknown as TranswarpToken
     // reset private wallet state
     //@ts-ignore
     window.burnWallet = undefined
@@ -1045,19 +1045,19 @@ async function loadTokenHandler() {
     if (window.publicWallet) {
         //@ts-ignore
         const walletClient = window.publicWallet as WalletClient
-        const wormholeTokenWallet = getContract({
-            abi: WormholeTokenArtifact.abi,
-            address: wormholeTokenAddress,
+        const transwarpTokenWallet = getContract({
+            abi: TranswarpTokenArtifact.abi,
+            address: transwarpTokenAddress,
             client: { wallet: walletClient, public: publicClient }
-        }) as unknown as WormholeToken
+        }) as unknown as TranswarpToken
         //@ts-ignore
-        window.wormholeTokenWallet = wormholeTokenWallet
+        window.transwarpTokenWallet = transwarpTokenWallet
         //@ts-ignore
-        await updateWalletInfoUi(wormholeTokenWallet, window.publicAddress as Address)
+        await updateWalletInfoUi(transwarpTokenWallet, window.publicAddress as Address)
     }
 
     try {
-        const contractConfig = await getContractConfig(wormholeTokenAddress, publicClient)
+        const contractConfig = await getContractConfig(transwarpTokenAddress, publicClient)
         //@ts-ignore
         window.contractConfig = contractConfig
         //@ts-ignore
@@ -1065,7 +1065,7 @@ async function loadTokenHandler() {
         tokenLoadStatusEl!.textContent = "loaded!"
         setTimeout(() => { tokenLoadStatusEl!.textContent = "" }, 2000)
     } catch (error) {
-        tokenLoadStatusEl!.textContent = "failed - is this a valid WormholeToken?"
+        tokenLoadStatusEl!.textContent = "failed - is this a valid TranswarpToken?"
         console.error(error)
     }
 
@@ -1107,7 +1107,7 @@ if ('ethereum' in window && window.ethereum) {
             //@ts-ignore
             window.publicWallet = undefined
             //@ts-ignore
-            window.wormholeTokenWallet = undefined
+            window.transwarpTokenWallet = undefined
             return
         }
         // skip if no previous account (initial connection) or address hasn't changed

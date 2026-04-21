@@ -6,7 +6,7 @@ import { network } from "hardhat";
 // TODO fix @warptoad/gigabridge-js why it doesn't automatically gets @aztec/aztec.js
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js"
 
-import { FIELD_LIMIT, WormholeTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
+import { FIELD_LIMIT, TranswarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
 import { getSyncedMerkleTree } from "../src/syncing.ts";
 //import { noir_test_main_self_relay, noir_verify_sig } from "../src/noirtests.js";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
@@ -24,7 +24,7 @@ const CIRCUIT_SIZE = 3;
 const provingThreads = 1 //1; //undefined  // giving the backend more threads makes it hang and impossible to debug // set to undefined to use max threads available
 const PRE_MADE_BURN_ACCOUNTS = await readFile(path, { encoding: "utf-8" })
 
-export type WormholeTokenTest = ContractReturnType<typeof WormholeTokenContractName>
+export type TranswarpTokenTest = ContractReturnType<typeof TranswarpTokenContractName>
 
 
 let gas: any = { "transfers": {} }
@@ -34,7 +34,7 @@ describe("Token", async function () {
 
     const { viem } = await network.connect();
     const publicClient = await viem.getPublicClient() as PublicClient;
-    let wormholeToken: ContractReturnType<typeof WormholeTokenContractName>;
+    let transwarpToken: ContractReturnType<typeof TranswarpTokenContractName>;
     let reMintVerifier3: ContractReturnType<typeof reMint3InVerifierContractName>;
     let reMintVerifier32: ContractReturnType<typeof reMint32InVerifierContractName>;
     let reMintVerifier100: ContractReturnType<typeof reMint100InVerifierContractName>;
@@ -67,8 +67,8 @@ describe("Token", async function () {
         ]
         const _acceptedChainIds: bigint[] = []
 
-        wormholeToken = await viem.deployContract(
-            WormholeTokenContractName,
+        transwarpToken = await viem.deployContract(
+            TranswarpTokenContractName,
             [
                 _powDifficulty,
                 _reMintLimit,
@@ -86,9 +86,9 @@ describe("Token", async function () {
                 libraries: { leanIMTPoseidon2: leanIMTPoseidon2.address }
             },
         )
-        powDifficulty = BigInt(await wormholeToken.read.POW_DIFFICULTY())
+        powDifficulty = BigInt(await transwarpToken.read.POW_DIFFICULTY())
         //feeEstimatorPrivate = await getPrivateAccount({ wallet: feeEstimator, sharedSecret })
-        //await wormholeToken.write.getFreeTokens([feeEstimatorPrivate.burnAddress])
+        //await transwarpToken.write.getFreeTokens([feeEstimatorPrivate.burnAddress])
     })
 
     after(function () {
@@ -104,35 +104,35 @@ describe("Token", async function () {
         it("Should transfer", async function () {
             const chainId = await publicClient.getChainId()
             const alicePrivate = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
-            const aliceBurnAccount = await alicePrivate.createBurnAccount(wormholeToken.address, { viewingKeyIndex: 0 })
+            const aliceBurnAccount = await alicePrivate.createBurnAccount(transwarpToken.address, { viewingKeyIndex: 0 })
 
             let totalAmountInserts = 0
             const startIndex = 2
             for (let index = startIndex; index < 3; index++) {
                 //it("Should transfer", async function () {
-                const amountFreeTokens = await wormholeToken.read.amountFreeTokens()
-                await wormholeToken.write.getFreeTokens([deployer.account.address]) //sends 1_000_000n token
+                const amountFreeTokens = await transwarpToken.read.amountFreeTokens()
+                await transwarpToken.write.getFreeTokens([deployer.account.address]) //sends 1_000_000n token
 
                 let transferTx: Hash = "0x00"
                 const amountTransfers = 2 ** index + Math.floor(Math.random() * startIndex - startIndex / 2);// a bit of noise is always good!
                 totalAmountInserts += amountTransfers + 1
-                const firstTransferTx = await wormholeToken.write.transfer([alice.account.address, 420n])
+                const firstTransferTx = await transwarpToken.write.transfer([alice.account.address, 420n])
 
                 for (let index = 0; index < amountTransfers; index++) {
-                    transferTx = await wormholeToken.write.transfer([aliceBurnAccount.burnAddress, 420n])
+                    transferTx = await transwarpToken.write.transfer([aliceBurnAccount.burnAddress, 420n])
                 }
                 // if deployer send to it self. tx.origin == recipient, and the merkle insertion is skipped!
                 // warm the slot
-                await wormholeToken.write.transfer([deployer.account.address, 420n])
-                const transferWithoutMerkleTx = await wormholeToken.write.transfer([deployer.account.address, 420n])
+                await transwarpToken.write.transfer([deployer.account.address, 420n])
+                const transferWithoutMerkleTx = await transwarpToken.write.transfer([deployer.account.address, 420n])
                 const transferWithoutMerkleReceipt = await publicClient.getTransactionReceipt({ hash: transferWithoutMerkleTx })
                 const firstTransferWithMerkleReceipt = await publicClient.getTransactionReceipt({ hash: firstTransferTx })
                 gasReport.record("transfer (no merkle insert)", transferWithoutMerkleReceipt.gasUsed)
                 gasReport.record("transfer (with merkle insert)", firstTransferWithMerkleReceipt.gasUsed)
 
-                const syncedTree = await getSyncedMerkleTree(wormholeToken.address, publicClient)
+                const syncedTree = await getSyncedMerkleTree(transwarpToken.address, publicClient)
                 const jsRoot = syncedTree.tree.root
-                const onchainRoot = await wormholeToken.read.root()
+                const onchainRoot = await transwarpToken.read.root()
                 assert.equal(jsRoot, onchainRoot, "jsRoot doesn't match onchainRoot")
                 const transferWithMerkleReceipt = await publicClient.getTransactionReceipt({ hash: transferTx })
                 gas["transfers"][index] = {
@@ -140,7 +140,7 @@ describe("Token", async function () {
                     // dangling node inserts are cheaper so we take 2 measurements to hopefully catch a non dangling insert? @TODO find better method
                     transferWithoutMerkle: { high: transferWithoutMerkleReceipt.gasUsed, low: transferWithoutMerkleReceipt.gasUsed },
                     transferWithMerkle___: { high: transferWithMerkleReceipt.gasUsed, low: firstTransferWithMerkleReceipt.gasUsed },
-                    depth: (await wormholeToken.read.tree())[1]
+                    depth: (await transwarpToken.read.tree())[1]
                 }
 
             }
@@ -151,15 +151,15 @@ describe("Token", async function () {
         it("reMint 5x in succession", async function () {
             const chainId = await publicClient.getChainId()
             const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
-            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken.address)
-            const aliceBurnAccount = await aliceBurnWallet.createBurnAccount(wormholeToken.address, {viewingKeyIndex:0})
+            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, transwarpToken.address)
+            const aliceBurnAccount = await aliceBurnWallet.createBurnAccount(transwarpToken.address, {viewingKeyIndex:0})
 
-            const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
-            await wormholeTokenAlice.write.getFreeTokens([alice.account.address])
+            const transwarpTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: transwarpToken.abi, address: transwarpToken.address });
+            await transwarpTokenAlice.write.getFreeTokens([alice.account.address])
 
-            await aliceBurnWallet.superSafeBurn(wormholeToken.address, 5n, aliceBurnAccount)
+            await aliceBurnWallet.superSafeBurn(transwarpToken.address, 5n, aliceBurnAccount)
             for (let index = 0; index < 5; index++) {
-                const proof = await aliceBurnWallet.easyProof(wormholeToken.address, alice.account.address, 1n, {threads:provingThreads})
+                const proof = await aliceBurnWallet.easyProof(transwarpToken.address, alice.account.address, 1n, {threads:provingThreads})
                 await aliceBurnWallet.selfRelayTx(proof)
                 
             }
@@ -179,16 +179,16 @@ describe("Token", async function () {
 
 
 
-            const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
-            await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
+            const transwarpTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: transwarpToken.abi, address: transwarpToken.address });
+            await transwarpTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
 
             // takes presynced merkle tree and exported burnAccounts inside `PRE_MADE_BURN_ACCOUNTS`
             // uses that contract address to verify the sync state of that account
-            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken.address)
+            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, transwarpToken.address)
             // PoW nonce hashing is with workers so can be done in parallel!
             // but we did importWallet with wallet data that is export with {paranoidMode:false} 
             // and we said {startingViewKeyIndex:0}, so it will find those accounts already imported with pow already done
-            const aliceBurnAccounts = await aliceBurnWallet.createBurnAccountsBulk(wormholeToken.address, amountOfBurnAccounts, { startingViewKeyIndex: 0 })
+            const aliceBurnAccounts = await aliceBurnWallet.createBurnAccountsBulk(transwarpToken.address, amountOfBurnAccounts, { startingViewKeyIndex: 0 })
 
 
             const claimableBurnAddress = aliceBurnAccounts.map((b) => b.burnAddress);
@@ -199,11 +199,11 @@ describe("Token", async function () {
                 for (const aliceBurnAccount of aliceBurnAccounts) {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
-                    const burnTx = await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    const burnTx = await aliceBurnWallet.superSafeBurn(transwarpToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
                     await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
                 const proof = await aliceBurnWallet.easyProof(
-                    wormholeToken.address,
+                    transwarpToken.address,
                     reMintRecipient,
                     reMintAmount,
                     {
@@ -218,7 +218,7 @@ describe("Token", async function () {
                 expectedRecipientBalance += reMintAmount
                 reMintTxs.push(reMintTx)
 
-                const balanceBobPublic = await wormholeTokenAlice.read.balanceOf([bob.account.address])
+                const balanceBobPublic = await transwarpTokenAlice.read.balanceOf([bob.account.address])
 
                 assert.equal(balanceBobPublic, expectedRecipientBalance, "bob didn't receive the expected amount of re-minted tokens")
             }
@@ -230,7 +230,7 @@ describe("Token", async function () {
             )
             const logs = receipts.flatMap((r) => r.logs)
             const nullifiedEvents = parseEventLogs({
-                abi: wormholeToken.abi,
+                abi: transwarpToken.abi,
                 logs: logs,
                 eventName: "Nullified"
             })
@@ -246,7 +246,7 @@ describe("Token", async function () {
             // test wallet imports TODO move this
             const walletExport = aliceBurnWallet.exportWallet({ paranoidMode: false, merkleTree: false })
             const alicePrivate2 = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
-            await alicePrivate2.importWallet(walletExport, wormholeToken.address)
+            await alicePrivate2.importWallet(walletExport, transwarpToken.address)
         })
 
         it("reMint 5x from 3 burn accounts", async function () {
@@ -260,21 +260,21 @@ describe("Token", async function () {
             const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
             const reMintRecipient = bob.account.address
             // ---------------------------------------------
-            const contractConfig = await aliceBurnWallet.getContractConfig(wormholeToken.address)
+            const contractConfig = await aliceBurnWallet.getContractConfig(transwarpToken.address)
             console.log({ contractConfig })
 
 
 
-            const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
-            await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
+            const transwarpTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: transwarpToken.abi, address: transwarpToken.address });
+            await transwarpTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
 
             // takes presynced merkle tree and exported burnAccounts inside `PRE_MADE_BURN_ACCOUNTS`
             // uses that contract address to verify the sync state of that account
-            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken.address)
+            await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, transwarpToken.address)
             // PoW nonce hashing is with workers so can be done in parallel!
             // but we did importWallet with wallet data that is export with {paranoidMode:false} 
             // and we said {startingViewKeyIndex:0}, so it will find those accounts already imported with pow already done
-            const aliceBurnAccounts = await aliceBurnWallet.createBurnAccountsBulk(wormholeToken.address, amountOfBurnAccounts, { startingViewKeyIndex: 0 })
+            const aliceBurnAccounts = await aliceBurnWallet.createBurnAccountsBulk(transwarpToken.address, amountOfBurnAccounts, { startingViewKeyIndex: 0 })
 
 
             const claimableBurnAddress = aliceBurnAccounts.map((b) => b.burnAddress);
@@ -285,12 +285,12 @@ describe("Token", async function () {
                 for (const aliceBurnAccount of aliceBurnAccounts) {
                     // you can use a regular transfer. But superSafeBurn will do extra checks so you know the burn account works for that token contract (like difficulty etc)
                     // you can also not pass the burnAccount and superSafeBurn will make a fresh one for you!
-                    const burnTx = await aliceBurnWallet.superSafeBurn(wormholeToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
+                    const burnTx = await aliceBurnWallet.superSafeBurn(transwarpToken.address, reMintAmount / BigInt(amountOfBurnAccounts) + 1n, aliceBurnAccount)
                     await gasReport.recordTx("superSafeBurn (transfer to burn address)", burnTx, publicClient)
                 }
 
                 const proof = await aliceBurnWallet.easyProof(
-                    wormholeToken.address,
+                    transwarpToken.address,
                     reMintRecipient,
                     reMintAmount,
                     {
@@ -305,7 +305,7 @@ describe("Token", async function () {
                 expectedRecipientBalance += reMintAmount
                 reMintTxs.push(reMintTx)
 
-                const balanceBobPublic = await wormholeTokenAlice.read.balanceOf([bob.account.address])
+                const balanceBobPublic = await transwarpTokenAlice.read.balanceOf([bob.account.address])
 
                 assert.equal(balanceBobPublic, expectedRecipientBalance, "bob didn't receive the expected amount of re-minted tokens")
             }
@@ -317,7 +317,7 @@ describe("Token", async function () {
             )
             const logs = receipts.flatMap((r) => r.logs)
             const nullifiedEvents = parseEventLogs({
-                abi: wormholeToken.abi,
+                abi: transwarpToken.abi,
                 logs: logs,
                 eventName: "Nullified"
             })
@@ -333,7 +333,7 @@ describe("Token", async function () {
             // test wallet imports TODO move this
             const walletExport = aliceBurnWallet.exportWallet({ paranoidMode: false, merkleTree: false })
             const alicePrivate2 = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] })
-            await alicePrivate2.importWallet(walletExport, wormholeToken.address)
+            await alicePrivate2.importWallet(walletExport, transwarpToken.address)
         })
     })
 

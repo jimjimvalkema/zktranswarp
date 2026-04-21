@@ -1,7 +1,7 @@
 {
   "_format": "hh3-artifact-1",
-  "contractName": "WormholeToken",
-  "sourceName": "contracts/WormholeToken.sol",
+  "contractName": "TranswarpToken",
+  "sourceName": "contracts/TranswarpToken.sol",
   "abi": [
     {
       "inputs": [
@@ -1416,6 +1416,6 @@
       }
     ]
   },
-  "inputSourceName": "project/contracts/WormholeToken.sol",
+  "inputSourceName": "project/contracts/TranswarpToken.sol",
   "buildInfoId": "solc-0_8_28-6e2bfa783fa34f5b1869942adda01ce34baa6f8f"
 }

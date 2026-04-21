@@ -6,7 +6,7 @@ import { network } from "hardhat";
 // TODO fix @warptoad/gigabridge-js why it doesn't automatically gets @aztec/aztec.js
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js"
 
-import { WormholeTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
+import { TranswarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
 //import { noir_test_main_self_relay, noir_verify_sig } from "../src/noirtests.js";
 import { getBackend } from "../src/proving.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
@@ -20,7 +20,7 @@ import type { UnsyncedBurnAccount } from "../src/types.ts";
 const CIRCUIT_SIZE = 100;
 const provingThreads = 1 //1; //undefined  // giving the backend more threads makes it hang and impossible to debug // set to undefined to use max threads available
 
-export type WormholeTokenTest = ContractReturnType<typeof WormholeTokenContractName>
+export type TranswarpTokenTest = ContractReturnType<typeof TranswarpTokenContractName>
 
 
 let gas: any = { "transfers": {} }
@@ -29,7 +29,7 @@ describe("Token", async function () {
 
     const { viem } = await network.connect();
     const publicClient = await viem.getPublicClient();
-    let wormholeToken: ContractReturnType<typeof WormholeTokenContractName>;
+    let transwarpToken: ContractReturnType<typeof TranswarpTokenContractName>;
     let reMintVerifier3: ContractReturnType<typeof reMint3InVerifierContractName>;
     let reMintVerifier32: ContractReturnType<typeof reMint32InVerifierContractName>;
     let reMintVerifier100: ContractReturnType<typeof reMint100InVerifierContractName>;
@@ -49,8 +49,8 @@ describe("Token", async function () {
         reMintVerifier32 = await viem.deployContract(reMint32InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
         reMintVerifier100 = await viem.deployContract(reMint100InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
         //PrivateTransferVerifier = await viem.deployContract(PrivateTransferVerifierContractName, [], { client: { wallet: deployer }, libraries: { } });
-        wormholeToken = await viem.deployContract(
-            WormholeTokenContractName,
+        transwarpToken = await viem.deployContract(
+            TranswarpTokenContractName,
             [
                 toHex(POW_DIFFICULTY, { size: 32 }),
                 RE_MINT_LIMIT,
@@ -71,9 +71,9 @@ describe("Token", async function () {
                 libraries: { leanIMTPoseidon2: leanIMTPoseidon2.address }
             },
         )
-        powDifficulty = BigInt(await wormholeToken.read.POW_DIFFICULTY())
+        powDifficulty = BigInt(await transwarpToken.read.POW_DIFFICULTY())
         //feeEstimatorPrivate = await getPrivateAccount({ wallet: feeEstimator, sharedSecret })
-        //await wormholeToken.write.getFreeTokens([feeEstimatorPrivate.burnAddress])
+        //await transwarpToken.write.getFreeTokens([feeEstimatorPrivate.burnAddress])
     })
 
 
@@ -87,18 +87,18 @@ describe("Token", async function () {
 
     describe("Token", async function () {
         it("generate 200 burn accounts", async function () {
-            const wormholeTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: wormholeToken.abi, address: wormholeToken.address });
-            const amountFreeTokens = await wormholeTokenAlice.read.amountFreeTokens()
-            await wormholeTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
+            const transwarpTokenAlice = getContract({ client: { public: publicClient, wallet: alice }, abi: transwarpToken.abi, address: transwarpToken.address });
+            const amountFreeTokens = await transwarpTokenAlice.read.amountFreeTokens()
+            await transwarpTokenAlice.write.getFreeTokens([alice.account.address]) //sends 1_000_000n token
 
             const alicePrivate = new BurnWallet(alice, { acceptedChainIds: [await publicClient.getChainId()] })
             const amountBurnAddresses = 200
 
-            const burnAccounts: UnsyncedBurnAccount[] = await alicePrivate.createBurnAccountsBulk(wormholeToken.address, amountBurnAddresses, { async: true })
-            await alicePrivate.superSafeBurn(wormholeToken.address,100000n,burnAccounts[0])
-            // const proof1 = await alicePrivate.easyProof(wormholeToken.address,burnAccounts[1].burnAddress,69n,{threads:provingThreads})
+            const burnAccounts: UnsyncedBurnAccount[] = await alicePrivate.createBurnAccountsBulk(transwarpToken.address, amountBurnAddresses, { async: true })
+            await alicePrivate.superSafeBurn(transwarpToken.address,100000n,burnAccounts[0])
+            // const proof1 = await alicePrivate.easyProof(transwarpToken.address,burnAccounts[1].burnAddress,69n,{threads:provingThreads})
             // await alicePrivate.selfRelayTx(proof1)
-            // const proof2 = await alicePrivate.easyProof(wormholeToken.address,burnAccounts[2].burnAddress,69n,{threads:provingThreads})
+            // const proof2 = await alicePrivate.easyProof(transwarpToken.address,burnAccounts[2].burnAddress,69n,{threads:provingThreads})
             // await alicePrivate.selfRelayTx(proof2)
             const __dirname = dirname(fileURLToPath(import.meta.url));
             const path =  join(__dirname, '../test/data/privateDataAlice.json')

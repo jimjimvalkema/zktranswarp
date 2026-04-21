@@ -31,13 +31,13 @@ export const ENCRYPTED_TOTAL_MINTED_PADDING = 256 // leaving some space for othe
 export const EAS_BYTE_LEN_OVERHEAD = 28
 
 export const VIEWING_KEY_SIG_MESSAGE = `
-You are about to create your viewing key for your zkwormhole account! \n
+You are about to create your viewing key for your zktranswarp account! \n
 Signing this on compromised site will result in leaking all private data. But *not* loss of funds.
 So please double check the url! 
 `
 
 //------------
-export const WormholeTokenContractName = "WormholeToken"
+export const TranswarpTokenContractName = "TranswarpToken"
 export const leanIMTPoseidon2ContractName = "leanIMTPoseidon2"
 export const reMint3InVerifierContractName = "reMint3Verifier"
 export const reMint32InVerifierContractName = "reMint32Verifier"
@@ -126,7 +126,7 @@ export const RE_MINT_RELAYER_GAS: { [chainId: Hex]: { [contract: Address]: { [ci
     // [toHex(1)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
     // [toHex(31337)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
     // [toHex(11155111)]: {
-    //     [deployedAddressesSepolia["wormholeToken#WormholeToken"]]: RE_MINT_RELAYER_GAS_DEFAULT_L1
+    //     [deployedAddressesSepolia["transwarpToken#TranswarpToken"]]: RE_MINT_RELAYER_GAS_DEFAULT_L1
     // },
     //[toHex(17000)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
 } as const

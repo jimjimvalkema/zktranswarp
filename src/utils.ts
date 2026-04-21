@@ -1,20 +1,20 @@
 import { bytesToHex, getAddress, getContract, hexToBytes, padHex, toHex, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type {
-    BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, WormholeToken,
+    BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, TranswarpToken,
     AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable,
     DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, FullViewKeyData, UnknownBurnAccount, ExportedViewKeyData,
     BurnAccountRecoverable,
-    WormholeContractConfig,
+    TranswarpContractConfig,
     BurnAccountSyncData,
     BurnAccountSyncFields,
 } from "./types.ts";
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, EMPTY_SYNC_FIELDS, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema, type BurnAccountStorage } from "./schemas.ts";
-import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
-import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.js"
+import TranswarpTokenArtifact from '../artifacts/contracts/TranswarpToken.sol/TranswarpToken.json' with {"type": "json"};
+import type { TranswarpToken$Type } from "../artifacts/contracts/TranswarpToken.sol/artifacts.js"
 import { viemAccountNotSetErr } from "./BurnWallet.ts";
-export const wormholeTokenAbi = WormholeTokenArtifact.abi as WormholeToken$Type["abi"]
+export const transwarpTokenAbi = TranswarpTokenArtifact.abi as TranswarpToken$Type["abi"]
 export function padWithRandomHex({ arr, len, hexSize, dir }: { arr: Hex[], len: number, hexSize: number, dir: 'left' | 'right' }): Hex[] {
     const padding = Array.from({ length: len - arr.length }, () =>
         bytesToHex(crypto.getRandomValues(new Uint8Array(hexSize)))
@@ -159,12 +159,12 @@ export function getDeterministicBurnAccounts(
 }
 
 // TODO
-// export async function getFreshBurnAccount(BurnViewKeyManager: BurnViewKeyManager, wormholeToken: WormholeTokenTest | WormholeToken) {
-//     const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount).filter(async (b) => await wormholeToken.read.balanceOf([b.burnAddress]) === 0n)
+// export async function getFreshBurnAccount(BurnViewKeyManager: BurnViewKeyManager, transwarpToken: TranswarpTokenTest | TranswarpToken) {
+//     const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount).filter(async (b) => await transwarpToken.read.balanceOf([b.burnAddress]) === 0n)
 // }
 
 export async function getCircuitSizesFromContract(address: Address, publicClient: PublicClient): Promise<number[]> {
-    const base = { address, abi: wormholeTokenAbi } as const
+    const base = { address, abi: transwarpTokenAbi } as const
     const [amountOfVerifiers] = await publicClient.multicall({
         contracts: [{ ...base, functionName: "AMOUNT_OF_VERIFIERS" }] as any,
         allowFailure: false,
@@ -177,7 +177,7 @@ export async function getCircuitSizesFromContract(address: Address, publicClient
 
 
 export async function getAcceptedChainIdFromContract(address: Address, publicClient: PublicClient): Promise<readonly bigint[]> {
-    return await publicClient.readContract({ address, abi: wormholeTokenAbi, functionName: "getAcceptedChainIds" })
+    return await publicClient.readContract({ address, abi: transwarpTokenAbi, functionName: "getAcceptedChainIds" })
 }
 export function getCircuitSize(amountBurnAddresses: number, circuitSizes: number[]) {
     return circuitSizes.find((v) => v >= amountBurnAddresses) as number
@@ -236,13 +236,13 @@ export function BurnAccountToFlatArrExportedData<T>(data: ExportedViewKeyData<T>
 }
 
 
-export function getWormholeTokenContract(address: Address, client: { wallet: WalletClient, public: PublicClient }): WormholeToken<{ wallet: WalletClient, public: PublicClient }>;
-export function getWormholeTokenContract(address: Address, client: { wallet: WalletClient }): WormholeToken<{ wallet: WalletClient }>;
-export function getWormholeTokenContract(address: Address, client: { public: PublicClient }): WormholeToken<{ public: PublicClient }>;
-export function getWormholeTokenContract(address: Address, client: { wallet?: WalletClient, public?: PublicClient }): WormholeToken<any> {
+export function getTranswarpTokenContract(address: Address, client: { wallet: WalletClient, public: PublicClient }): TranswarpToken<{ wallet: WalletClient, public: PublicClient }>;
+export function getTranswarpTokenContract(address: Address, client: { wallet: WalletClient }): TranswarpToken<{ wallet: WalletClient }>;
+export function getTranswarpTokenContract(address: Address, client: { public: PublicClient }): TranswarpToken<{ public: PublicClient }>;
+export function getTranswarpTokenContract(address: Address, client: { wallet?: WalletClient, public?: PublicClient }): TranswarpToken<any> {
     return getContract({
         address,
-        abi: wormholeTokenAbi,
+        abi: transwarpTokenAbi,
         client: client as { public: PublicClient; wallet: WalletClient },
     });
 }
@@ -251,7 +251,7 @@ export async function checkNullifiers(nullifiers: bigint[], tokenAddress: Addres
     return await publicClient.multicall({
         contracts: nullifiers.map((nullifier) => ({
             address: tokenAddress,
-            abi: wormholeTokenAbi,
+            abi: transwarpTokenAbi,
             functionName: "nullifiers" as const,
             args: [nullifier] as const,
         })),
@@ -265,7 +265,7 @@ export async function getTokenPriceInEth(token: Address, fullNode: PublicClient)
 }
 
 export async function getContractConfig(address: Address, fullNode: PublicClient) {
-    const base = { address, abi: wormholeTokenAbi } as const
+    const base = { address, abi: transwarpTokenAbi } as const
 
     const [[
         powDifficulty, reMintLimit, maxTreeDepth, isCrossChain,
@@ -297,7 +297,7 @@ export async function getContractConfig(address: Address, fullNode: PublicClient
         allowFailure: false,
     }) as Address[]
 
-    const config: WormholeContractConfig = {
+    const config: TranswarpContractConfig = {
         VERIFIER_SIZES: verifierSizeResults,
         VERIFIERS_PER_SIZE: Object.fromEntries(verifierSizeResults.map((size, index) => [size, verifiersPerSizeResults[index]])),
         POW_DIFFICULTY: padHex(powDifficulty, { size: 32 }),

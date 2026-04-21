@@ -1,18 +1,18 @@
 import type { Address, GetContractReturnType, Hex, PublicClient, WalletClient } from "viem";
-import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.js";
+import type { TranswarpToken$Type } from "../artifacts/contracts/TranswarpToken.sol/artifacts.js";
 import type { InputMap } from "@noir-lang/noir_js";
 import type { UltraHonkBackend } from "@aztec/bb.js";
 import { LeanIMT } from "@zk-kit/lean-imt";
 import type { DerivedBurnAccount, SyncedBurnAccount, UnknownBurnAccount, BurnAccountRecoverable, BurnAccountImportable, PubKeyHex, ExportedViewKeyData, PreSyncedTreeStringifyable } from "./schemas.ts";
 import { number } from "zod";
 
-export type WormholeClientArg =
+export type TranswarpClientArg =
     | { public: PublicClient; wallet: WalletClient }
     | { public: PublicClient }
     | { wallet: WalletClient };
 
-export type WormholeToken<TClient extends WormholeClientArg = { public: PublicClient; wallet: WalletClient }> =
-    GetContractReturnType<WormholeToken$Type["abi"], TClient>;
+export type TranswarpToken<TClient extends TranswarpClientArg = { public: PublicClient; wallet: WalletClient }> =
+    GetContractReturnType<TranswarpToken$Type["abi"], TClient>;
 // we could use import type { FixedLengthArray } from 'type-fest';
 // but for now i just do branded types so it yells at you if you do something stupid, but it doesn't check the length
 export type U8AsHex = Hex & { __brand: 'u8AsHex' }
@@ -232,7 +232,7 @@ export interface FakeBurnAccountProof {
 
 export interface ClientPerChainId { [chainId: number]: PublicClient }
 
-export interface WormholeContractConfig {
+export interface TranswarpContractConfig {
     VERIFIER_SIZES: number[],
     VERIFIERS_PER_SIZE: { [size: number]: Address }
     POW_DIFFICULTY: Hex,

@@ -4,11 +4,11 @@ import { LeanIMT } from "@zk-kit/lean-imt"
 import type { Address, Hex, PublicClient, WalletClient } from "viem"
 import { bytesToHex, concatHex, getAddress, getContract, hexToBytes, sliceHex, toHex } from "viem"
 import { ENCRYPTED_TOTAL_MINTED_PADDING } from "./constants.ts"
-import type { BurnAccount, PreSyncedTree, SyncedBurnAccount, WormholeToken } from "./types.ts"
+import type { BurnAccount, PreSyncedTree, SyncedBurnAccount, TranswarpToken } from "./types.ts"
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { hashNullifier } from "./hashing.ts"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
-import { getAllBurnAccounts, getWormholeTokenContract, wormholeTokenAbi } from "./utils.ts"
+import { getAllBurnAccounts, getTranswarpTokenContract, transwarpTokenAbi } from "./utils.ts"
 import pLimit from "p-limit"
 
 export const poseidon2IMTHashFunc: LeanIMTHashFunction = (a: bigint, b: bigint) => poseidon2Hash([a, b])
@@ -18,9 +18,9 @@ export async function getSyncedMerkleTree(
     { syncTillBlock, fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq }: { syncTillBlock?: bigint, fullNode?: PublicClient, preSyncedTree?: PreSyncedTree, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}
 ) {
     fullNode ??= archiveNode;
-    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
-    const wormholeTokenArchive = getWormholeTokenContract(tokenAddress, { public: archiveNode })
-    deploymentBlock ??= await wormholeTokenFull.read.DEPLOYMENT_BLOCK()
+    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { public: fullNode })
+    const transwarpTokenArchive = getTranswarpTokenContract(tokenAddress, { public: archiveNode })
+    deploymentBlock ??= await transwarpTokenFull.read.DEPLOYMENT_BLOCK()
     let firstSyncBlock = deploymentBlock
     let originalStartSyncBlock = deploymentBlock
     let preSyncedLeaves: bigint[] = []
@@ -30,7 +30,7 @@ export async function getSyncedMerkleTree(
         // check preSyncedTree 
         if (preSyncedTree.firstSyncedBlock > deploymentBlock) { throw new Error(`preSyncedTree is not synced from deployment block (${deploymentBlock}), this is not supported`) }
         if (preSyncedTree.firstSyncedBlock < deploymentBlock) { console.warn(`preSyncedTree has been synced from a block before deployment block. Is this the right tree?`) }
-        const isValidRoot = Boolean(preSyncedTree.tree.root) && await wormholeTokenFull.read.roots([preSyncedTree.tree.root]);
+        const isValidRoot = Boolean(preSyncedTree.tree.root) && await transwarpTokenFull.read.roots([preSyncedTree.tree.root]);
         const neverBeenSynced = preSyncedTree.lastSyncedBlock === preSyncedTree.firstSyncedBlock;
         if (isValidRoot === false && neverBeenSynced === false) { throw new Error(`preSyncedTrees root is not in the "roots" mapping of tree onchain. preSyncedTreeRoot: ${preSyncedTree.tree.root}, lastPreSyncedBlockNumber:${preSyncedTree.lastSyncedBlock}`) }
 
@@ -45,7 +45,7 @@ export async function getSyncedMerkleTree(
             // get that leaf. And remove all leaves that happened after that leaf
             const lastLeafAtBlock = await queryEventInChunks({
                 publicClient: archiveNode,
-                contract: wormholeTokenArchive,
+                contract: transwarpTokenArchive,
                 eventName: "NewLeaf",
                 reverseOrder: true,
                 maxEvents: 1,
@@ -78,7 +78,7 @@ export async function getSyncedMerkleTree(
         // and the extra block is either empty or not yet mined.
         const events = await queryEventInChunks({
             publicClient: archiveNode,
-            contract: wormholeTokenArchive,
+            contract: transwarpTokenArchive,
             eventName: "NewLeaf",
             firstBlock: firstSyncBlock,
             lastBlock: syncTillBlock,
@@ -95,7 +95,7 @@ export async function getSyncedMerkleTree(
 
 
     // check root against chain
-    const isValidRoot = await wormholeTokenArchive.read.root({ blockNumber: syncTillBlock }) === (tree.root ?? 0n)
+    const isValidRoot = await transwarpTokenArchive.read.root({ blockNumber: syncTillBlock }) === (tree.root ?? 0n)
     if (isValidRoot === false) { throw new Error(`getSyncedMerkleTree synced but got invalid root`) }
 
     return { tree, lastSyncedBlock: syncTillBlock, firstSyncedBlock: originalStartSyncBlock } as PreSyncedTree
@@ -181,7 +181,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
     if (prevSyncFields && BigInt(prevSyncFields.lastSyncedBlock) === syncTillBlock) {
         return burnAccount as SyncedBurnAccount
     }
-    const wormholeTokenArchive = getWormholeTokenContract(tokenAddress, { public: archiveNode })
+    const transwarpTokenArchive = getTranswarpTokenContract(tokenAddress, { public: archiveNode })
 
     const viewingKey = BigInt(burnAccount.viewingKey)
 
@@ -193,12 +193,12 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
     let lastSpendBlockNum: bigint | null = null
     let lastNullifier: bigint | null = null;
 
-    const totalBurned = await wormholeTokenArchive.read.balanceOf([burnAccount.burnAddress], { blockNumber: syncTillBlock });
+    const totalBurned = await transwarpTokenArchive.read.balanceOf([burnAccount.burnAddress], { blockNumber: syncTillBlock });
     // nothing burned = nothing spent = nothing to sync
     if (totalBurned !== 0n) {
         while ((isNullified || isNullified === null) && (maxNonce === undefined || accountNonce < maxNonce)) {
             const nullifier = hashNullifier({ accountNonce: accountNonce, viewingKey: viewingKey })
-            const nullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([nullifier], { blockNumber: syncTillBlock })
+            const nullifiedAtBlock = await transwarpTokenArchive.read.nullifiers([nullifier], { blockNumber: syncTillBlock })
             // if not nullified
             if (nullifiedAtBlock === 0n) {
                 // we are at the first iteration and accountNonce is not at 0. 
@@ -207,7 +207,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
                 if (wasPreviouslySynced) {
                     const prevNullifier = hashNullifier({ accountNonce: accountNonce - 1n, viewingKey: viewingKey })
                     // another rpc call but trust me i got stuck on this stupid ah bug for hours and it took claude a while to find it as well 
-                    const prevNullifiedAtBlock = await wormholeTokenArchive.read.nullifiers([prevNullifier], { blockNumber: syncTillBlock })
+                    const prevNullifiedAtBlock = await transwarpTokenArchive.read.nullifiers([prevNullifier], { blockNumber: syncTillBlock })
                     if (prevNullifiedAtBlock === 0n) {
                         throw new Error(`
                         provided burnAccount has an invalid accountNonce. Account nonce was set to a non 0 number but it's previous nonce was not nullified
@@ -234,7 +234,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
             } else {
                 const logs = await archiveNode.getContractEvents({
                     address: tokenAddress,
-                    abi: wormholeTokenAbi,
+                    abi: transwarpTokenAbi,
                     eventName: "Nullified",
                     fromBlock: lastSpendBlockNum,
                     toBlock: lastSpendBlockNum,

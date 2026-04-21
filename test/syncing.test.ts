@@ -6,7 +6,7 @@ import { network } from "hardhat";
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js";
 
 import {
-    WormholeTokenContractName,
+    TranswarpTokenContractName,
     reMint3InVerifierContractName,
     reMint32InVerifierContractName,
     reMint100InVerifierContractName,
@@ -32,7 +32,7 @@ const PRE_MADE_BURN_ACCOUNTS = await readFile(join(__dirname, "./data/privateDat
 describe("syncing", async function () {
     const { viem } = await network.connect();
     const publicClient = await viem.getPublicClient() as PublicClient;
-    let wormholeToken: ContractReturnType<typeof WormholeTokenContractName>;
+    let transwarpToken: ContractReturnType<typeof TranswarpTokenContractName>;
     const [deployer, alice, bob, carol, relayer, feeEstimator] = await viem.getWalletClients()
 
     beforeEach(async function () {
@@ -44,8 +44,8 @@ describe("syncing", async function () {
         const reMintVerifier32 = await viem.deployContract(reMint32InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
         const reMintVerifier100 = await viem.deployContract(reMint100InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
 
-        wormholeToken = await viem.deployContract(
-            WormholeTokenContractName,
+        transwarpToken = await viem.deployContract(
+            TranswarpTokenContractName,
             [
                 toHex(POW_DIFFICULTY, { size: 32 }),
                 RE_MINT_LIMIT,
@@ -67,13 +67,13 @@ describe("syncing", async function () {
             },
         );
 
-        await wormholeToken.write.getFreeTokens([deployer.account.address]);
+        await transwarpToken.write.getFreeTokens([deployer.account.address]);
     });
 
     // a transfer from deployer (tx.origin) to a different account gets counted as a burn
     // address by the contract, so it emits a NewLeaf. Varying amounts keep leaves unique.
     async function insertLeaf(to: `0x${string}`, amount: bigint) {
-        const tx = await wormholeToken.write.transfer([to, amount]);
+        const tx = await transwarpToken.write.transfer([to, amount]);
         const receipt = await publicClient.getTransactionReceipt({ hash: tx });
         return receipt.blockNumber;
     }
@@ -83,8 +83,8 @@ describe("syncing", async function () {
         await insertLeaf(bob.account.address, 2n);
         await insertLeaf(carol.account.address, 3n);
 
-        const synced = await getSyncedMerkleTree(wormholeToken.address, publicClient);
-        const onchainRoot = await wormholeToken.read.root();
+        const synced = await getSyncedMerkleTree(transwarpToken.address, publicClient);
+        const onchainRoot = await transwarpToken.read.root();
 
         assert.equal(synced.tree.size, 3);
         assert.equal(synced.tree.root, onchainRoot);
@@ -94,13 +94,13 @@ describe("syncing", async function () {
         await insertLeaf(alice.account.address, 1n);
         await insertLeaf(alice.account.address, 2n);
         const snapshotBlock = await insertLeaf(alice.account.address, 3n);
-        const expectedRoot = await wormholeToken.read.root({ blockNumber: snapshotBlock });
+        const expectedRoot = await transwarpToken.read.root({ blockNumber: snapshotBlock });
 
         // keep tree growing past snapshotBlock
         await insertLeaf(bob.account.address, 10n);
         await insertLeaf(bob.account.address, 11n);
 
-        const synced = await getSyncedMerkleTree(wormholeToken.address, publicClient, {
+        const synced = await getSyncedMerkleTree(transwarpToken.address, publicClient, {
             syncTillBlock: snapshotBlock,
         });
 
@@ -113,19 +113,19 @@ describe("syncing", async function () {
         await insertLeaf(alice.account.address, 1n);
         await insertLeaf(alice.account.address, 2n);
 
-        const preSynced = await getSyncedMerkleTree(wormholeToken.address, publicClient);
+        const preSynced = await getSyncedMerkleTree(transwarpToken.address, publicClient);
         assert.equal(preSynced.tree.size, 2);
 
         await insertLeaf(bob.account.address, 10n);
         await insertLeaf(bob.account.address, 11n);
         const targetBlock = await insertLeaf(bob.account.address, 12n);
-        const expectedRoot = await wormholeToken.read.root({ blockNumber: targetBlock });
+        const expectedRoot = await transwarpToken.read.root({ blockNumber: targetBlock });
 
         // keep tree growing past snapshotBlock
         await insertLeaf(carol.account.address, 100n);
         await insertLeaf(carol.account.address, 101n);
 
-        const synced = await getSyncedMerkleTree(wormholeToken.address, publicClient, {
+        const synced = await getSyncedMerkleTree(transwarpToken.address, publicClient, {
             preSyncedTree: preSynced,
             syncTillBlock: targetBlock,
         });
@@ -139,17 +139,17 @@ describe("syncing", async function () {
         await insertLeaf(alice.account.address, 1n);
         await insertLeaf(alice.account.address, 2n);
         const snapshotBlock = await insertLeaf(alice.account.address, 3n);
-        const expectedRoot = await wormholeToken.read.root({ blockNumber: snapshotBlock });
+        const expectedRoot = await transwarpToken.read.root({ blockNumber: snapshotBlock });
 
         await insertLeaf(bob.account.address, 10n);
         await insertLeaf(bob.account.address, 11n);
         await insertLeaf(carol.account.address, 100n);
         await insertLeaf(carol.account.address, 101n);
 
-        const fullySynced = await getSyncedMerkleTree(wormholeToken.address, publicClient);
+        const fullySynced = await getSyncedMerkleTree(transwarpToken.address, publicClient);
         assert.equal(fullySynced.tree.size, 7);
 
-        const rewound = await getSyncedMerkleTree(wormholeToken.address, publicClient, {
+        const rewound = await getSyncedMerkleTree(transwarpToken.address, publicClient, {
             preSyncedTree: fullySynced,
             syncTillBlock: snapshotBlock,
         });
@@ -162,21 +162,21 @@ describe("syncing", async function () {
     it("rewinds to a block that falls between two NewLeaf events", async function () {
         await insertLeaf(alice.account.address, 1n);
         const midBlock = await insertLeaf(alice.account.address, 2n);
-        const expectedRoot = await wormholeToken.read.root({ blockNumber: midBlock });
+        const expectedRoot = await transwarpToken.read.root({ blockNumber: midBlock });
 
         // bump the chain forward without emitting any NewLeaf (deployer -> deployer is skipped).
         // this makes syncTillBlock strictly greater than the block of the last kept leaf.
-        await wormholeToken.write.transfer([deployer.account.address, 1n]);
+        await transwarpToken.write.transfer([deployer.account.address, 1n]);
         const targetBlock = await publicClient.getBlockNumber();
         assert.ok(targetBlock > midBlock);
 
         await insertLeaf(bob.account.address, 10n);
         await insertLeaf(bob.account.address, 11n);
 
-        const fullySynced = await getSyncedMerkleTree(wormholeToken.address, publicClient);
+        const fullySynced = await getSyncedMerkleTree(transwarpToken.address, publicClient);
         assert.equal(fullySynced.tree.size, 4);
 
-        const rewound = await getSyncedMerkleTree(wormholeToken.address, publicClient, {
+        const rewound = await getSyncedMerkleTree(transwarpToken.address, publicClient, {
             preSyncedTree: fullySynced,
             syncTillBlock: targetBlock,
         });
@@ -187,8 +187,8 @@ describe("syncing", async function () {
     });
 
     it("sync when there are no leafs in the tree yet", async function () {
-        const expectedRoot = await wormholeToken.read.root();
-        const fullySynced = await getSyncedMerkleTree(wormholeToken.address, publicClient);
+        const expectedRoot = await transwarpToken.read.root();
+        const fullySynced = await getSyncedMerkleTree(transwarpToken.address, publicClient);
         // TODO make pr where leanIMT does `get root() ?? 0n` by it self
         // instead of doing it every call site where `fullySynced.tree.root`
         assert.equal(fullySynced.tree.root ?? 0n, expectedRoot);
@@ -200,13 +200,13 @@ describe("syncing", async function () {
         const chainId = await publicClient.getChainId();
         const aliceBurnWallet = new BurnWallet(alice, { archiveNodes: { [chainId]: publicClient }, acceptedChainIds: [chainId] });
         // import pre-generated burn accounts so we skip PoW
-        await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, wormholeToken.address);
-        const aliceBurnAccount = await aliceBurnWallet.createBurnAccount(wormholeToken.address, { viewingKeyIndex: 0 });
+        await aliceBurnWallet.importWallet(PRE_MADE_BURN_ACCOUNTS, transwarpToken.address);
+        const aliceBurnAccount = await aliceBurnWallet.createBurnAccount(transwarpToken.address, { viewingKeyIndex: 0 });
         return { aliceBurnWallet, aliceBurnAccount, chainId };
     }
 
     async function burnTo(burnAddress: `0x${string}`, amount: bigint) {
-        const tx = await wormholeToken.write.transfer([burnAddress, amount]);
+        const tx = await transwarpToken.write.transfer([burnAddress, amount]);
         const receipt = await publicClient.getTransactionReceipt({ hash: tx });
         return receipt.blockNumber;
     }
@@ -214,8 +214,8 @@ describe("syncing", async function () {
     it("syncBurnAccount: totalBurned = 0 when nothing has been burned", async function () {
         const { aliceBurnAccount, chainId } = await makeAliceBurnAccount();
 
-        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient);
-        const state = getBurnState(synced, chainId, wormholeToken.address);
+        const synced = await syncBurnAccount(aliceBurnAccount, transwarpToken.address, publicClient);
+        const state = getBurnState(synced, chainId, transwarpToken.address);
 
         assert.equal(BigInt(state.totalBurned), 0n);
         assert.equal(BigInt(state.totalMinted), 0n);
@@ -230,8 +230,8 @@ describe("syncing", async function () {
         await burnTo(aliceBurnAccount.burnAddress, 200n);
         await burnTo(aliceBurnAccount.burnAddress, 300n);
 
-        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient);
-        const state = getBurnState(synced, chainId, wormholeToken.address);
+        const synced = await syncBurnAccount(aliceBurnAccount, transwarpToken.address, publicClient);
+        const state = getBurnState(synced, chainId, transwarpToken.address);
 
         assert.equal(BigInt(state.totalBurned), 600n);
         assert.equal(BigInt(state.spendableBalance), 600n);
@@ -246,10 +246,10 @@ describe("syncing", async function () {
         await burnTo(aliceBurnAccount.burnAddress, 300n);
         await burnTo(aliceBurnAccount.burnAddress, 400n);
 
-        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient, {
+        const synced = await syncBurnAccount(aliceBurnAccount, transwarpToken.address, publicClient, {
             syncTillBlock: snapshotBlock,
         });
-        const state = getBurnState(synced, chainId, wormholeToken.address);
+        const state = getBurnState(synced, chainId, transwarpToken.address);
 
         assert.equal(BigInt(state.totalBurned), 300n);
         assert.equal(BigInt(state.lastSyncedBlock), snapshotBlock);
@@ -264,10 +264,10 @@ describe("syncing", async function () {
         await burnTo(aliceBurnAccount.burnAddress, 100n);
         await burnTo(aliceBurnAccount.burnAddress, 200n);
 
-        const synced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient, {
+        const synced = await syncBurnAccount(aliceBurnAccount, transwarpToken.address, publicClient, {
             syncTillBlock: preBurnBlock,
         });
-        const state = getBurnState(synced, chainId, wormholeToken.address);
+        const state = getBurnState(synced, chainId, transwarpToken.address);
 
         assert.equal(BigInt(state.totalBurned), 0n);
         assert.equal(BigInt(state.lastSyncedBlock), preBurnBlock);
@@ -282,15 +282,15 @@ describe("syncing", async function () {
         await burnTo(aliceBurnAccount.burnAddress, 400n);
 
         // first sync all the way forward
-        const fullySynced = await syncBurnAccount(aliceBurnAccount, wormholeToken.address, publicClient);
-        const syncedState = getBurnState(fullySynced, chainId, wormholeToken.address);
+        const fullySynced = await syncBurnAccount(aliceBurnAccount, transwarpToken.address, publicClient);
+        const syncedState = getBurnState(fullySynced, chainId, transwarpToken.address);
         assert.equal(BigInt(syncedState.totalBurned), 1000n);
 
         // then re-sync the same account back to an earlier block
-        const rewoundAccount = await syncBurnAccount(fullySynced, wormholeToken.address, publicClient, {
+        const rewoundAccount = await syncBurnAccount(fullySynced, transwarpToken.address, publicClient, {
             syncTillBlock: snapshotBlock,
         });
-        const rewoundState = getBurnState(rewoundAccount, chainId, wormholeToken.address);
+        const rewoundState = getBurnState(rewoundAccount, chainId, transwarpToken.address);
 
         assert.equal(BigInt(rewoundState.totalBurned), 300n);
         assert.equal(BigInt(rewoundState.lastSyncedBlock), snapshotBlock);

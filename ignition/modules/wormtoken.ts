@@ -1,10 +1,10 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 //@ts-ignore hardhat ignition does not understand file extensions
-import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName2, WormholeTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName } from "../../src/constants.ts";
+import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName2, TranswarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName } from "../../src/constants.ts";
 import { POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../../src/constants.ts";
 import { toHex } from "viem";
 
-export default buildModule("wormholeToken", (m) => {
+export default buildModule("transwarpToken", (m) => {
     const leanIMTPoseidon2 = m.contract(leanIMTPoseidon2ContractName, [], { libraries: {} });
     //const ZKTranscriptLib100in = m.contract(ZKTranscriptLibContractName100in, [], { libraries: {} });
     const ZKTranscriptLib2in = m.contract(ZKTranscriptLibContractName2, [], { libraries: {} });
@@ -26,8 +26,8 @@ export default buildModule("wormholeToken", (m) => {
         { contractAddress: reMintVerifier100, size: 100 }
     ]
     const _acceptedChainIds: bigint[] = []
-    const wormholeToken = m.contract(
-        WormholeTokenContractName,
+    const transwarpToken = m.contract(
+        TranswarpTokenContractName,
         [
             _powDifficulty,
             _reMintLimit,
@@ -42,5 +42,5 @@ export default buildModule("wormholeToken", (m) => {
         { libraries: { leanIMTPoseidon2: leanIMTPoseidon2 } }
     );
 
-    return { wormholeToken, reMintVerifier3, reMintVerifier32, reMintVerifier100, ZKTranscriptLib: ZKTranscriptLib2in, leanIMTPoseidon2 };
+    return { transwarpToken, reMintVerifier3, reMintVerifier32, reMintVerifier100, ZKTranscriptLib: ZKTranscriptLib2in, leanIMTPoseidon2 };
 });

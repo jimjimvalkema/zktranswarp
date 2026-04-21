@@ -1,6 +1,6 @@
 import { getAddress, toHex } from "viem"
 import type { Hex, Address, PublicClient } from "viem"
-import type { MerkleData, SpendableBalanceProof, PreSyncedTree, SignatureData, U1AsHexArr, U32AsHex, WormholeToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount, BurnAccountSelector, ProofInputs, BurnAccount } from "./types.js"
+import type { MerkleData, SpendableBalanceProof, PreSyncedTree, SignatureData, U1AsHexArr, U32AsHex, TranswarpToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount, BurnAccountSelector, ProofInputs, BurnAccount } from "./types.js"
 import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_MINTED_PADDING } from "./constants.ts"
 import { hashTotalMintedLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
@@ -22,7 +22,7 @@ const circuits: { [circuitSize: number]: any } = {
 //import { Fr } from "@aztec/aztec.js"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
 import { assert } from "node:console"
-import { getAcceptedChainIdFromContract, getAllBurnAccounts, getAvailableThreads, getCircuitSize, getCircuitSizesFromContract, getWormholeTokenContract, hexToU8AsHexLen32, padArray, padWithRandomHex, randomBN254FieldElement } from "./utils.ts"
+import { getAcceptedChainIdFromContract, getAllBurnAccounts, getAvailableThreads, getCircuitSize, getCircuitSizesFromContract, getTranswarpTokenContract, hexToU8AsHexLen32, padArray, padWithRandomHex, randomBN254FieldElement } from "./utils.ts"
 import { signPrivateTransfer } from "./signing.ts"
 
 export function formatMerkleProof(merkleProof: LeanIMTMerkleProof<bigint>, maxTreeDepth: number): MerkleData {
@@ -422,13 +422,13 @@ export async function createRelayerInputs(
  * @param recipient           - Address that will receive the re-minted tokens (required).
  * @param amount              - Amount to re-mint (required).
  * @param burnViewKeyManager  - The caller's private wallet containing burn accounts and signing keys (required).
- * @param tokenAddress - Address of the WormholeToken contract (required).
+ * @param tokenAddress - Address of the TranswarpToken contract (required).
  * @param archiveNode         - Archive-node viem PublicClient used for syncing and log queries (required).
  * @param signingEthAccount   - Ethereum account used to sign the private transfer (required).
  *
  * --- Defaults via RPC call if not set ---
- * @param powDifficulty       - Proof-of-work difficulty. Defaults to on-chain value from `wormholeToken.POW_DIFFICULTY()`.
- * @param reMintLimit - Max cumulative re-mint cap. Defaults to on-chain value from `wormholeToken.RE_MINT_LIMIT()`.
+ * @param powDifficulty       - Proof-of-work difficulty. Defaults to on-chain value from `transwarpToken.POW_DIFFICULTY()`.
+ * @param reMintLimit - Max cumulative re-mint cap. Defaults to on-chain value from `transwarpToken.RE_MINT_LIMIT()`.
  * @param chainId             - (@NOTICE not constrained rn) ChainId for the cross-chain transfer. Defaults to `archiveNode.getChainId()`.
  * @param circuitSizes         - sorted array of available circuit sizes. Sorted from smallest to highest.
  * @param maxTreeDepth        - Maximum Merkle tree depth. Defaults to `MAX_TREE_DEPTH`. Changing this produces invalid proofs.
@@ -466,18 +466,18 @@ export async function createRelayerInputs(
     signingEthAccount = getAddress(signingEthAccount)
     fullNode ??= archiveNode
     syncTillBlock ??= await fullNode.getBlockNumber()
-    const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode });
+    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { public: fullNode });
     [circuitSizes, powDifficulty, allowedChainIds, reMintLimit, chainId, maxTreeDepth] = await Promise.all([
         circuitSizes ?? getCircuitSizesFromContract(tokenAddress, fullNode),
-        powDifficulty ?? wormholeTokenFull.read.POW_DIFFICULTY(),
+        powDifficulty ?? transwarpTokenFull.read.POW_DIFFICULTY(),
         allowedChainIds ?? getAcceptedChainIdFromContract(tokenAddress, fullNode).then((v) => v.map((id) => toHex(id))),
-        reMintLimit ?? wormholeTokenFull.read.RE_MINT_LIMIT(),
+        reMintLimit ?? transwarpTokenFull.read.RE_MINT_LIMIT(),
         chainId ?? BigInt(await fullNode.getChainId()),
-        maxTreeDepth ?? wormholeTokenFull.read.MAX_TREE_DEPTH(),
+        maxTreeDepth ?? transwarpTokenFull.read.MAX_TREE_DEPTH(),
     ])
     if (circuitSize && circuitSizes.includes(circuitSize) === false) throw new Error(`circuit size: ${circuitSize} does not exist in contract: ${tokenAddress}, only sizes: ${circuitSizes.toString()} are available`)
     if (eip712Name === undefined || eip712Version === undefined) {
-        const [, name, version] = await wormholeTokenFull.read.eip712Domain()
+        const [, name, version] = await transwarpTokenFull.read.eip712Domain()
         eip712Name ??= name
         eip712Version ??= version
     }

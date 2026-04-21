@@ -28,7 +28,7 @@ import {SNARK_SCALAR_FIELD} from "zk-kit-lean-imt-custom-hash/Constants.sol";
  * conventional and does not conflict with the expectations of ERC-20
  * applications.
  */
-abstract contract ERC20WithWormHoleMerkleTree is
+abstract contract ERC20WithTransWarpMerkleTree is
     Context,
     IERC20,
     IERC20Metadata,
@@ -292,7 +292,7 @@ abstract contract ERC20WithWormHoleMerkleTree is
 
             _balances[to] = newBalance;
 
-            // we only care about `to` since zkwormhole accounts can only receive from the public not spend
+            // we only care about `to` since zktranswarp accounts can only receive from the public not spend
             // so the _balances[to] number goes up only :D
             // this inserts both _accountNoteHash and poseidon2(to, newBalance)
             _updateBalanceInMerkleTree(
@@ -351,7 +351,7 @@ abstract contract ERC20WithWormHoleMerkleTree is
                 );
                 _balances[to] = newBalance;
 
-                // we only care about `to` since zkwormhole accounts can only receive from the public not spend
+                // we only care about `to` since zktranswarp accounts can only receive from the public not spend
                 // so the _balances[to] number goes up only :D
                 // this inserts both _accountNoteHash and poseidon2(to, newBalance)
                 newBalances[i] = newBalance;

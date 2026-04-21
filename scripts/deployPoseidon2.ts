@@ -1,6 +1,6 @@
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js";
 import { network } from "hardhat";
-//import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName, PrivateTransferVerifierContractName, WormholeTokenContractName } from "../src/constants.js";
+//import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName, PrivateTransferVerifierContractName, TranswarpTokenContractName } from "../src/constants.js";
 import { padHex } from "viem";
 const { viem } = await network.connect();
 const publicClient = await viem.getPublicClient();

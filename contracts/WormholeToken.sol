@@ -5,7 +5,7 @@
 // @TODO 
 pragma solidity ^0.8.20;
 
-import {ERC20WithWormHoleMerkleTree} from "./ERC20WithWormHoleMerkleTree.sol"; 
+import {ERC20WithTransWarpMerkleTree} from "./ERC20WithTransWarpMerkleTree.sol"; 
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {LeanIMTData, Hasher} from "zk-kit-lean-imt-custom-hash/InternalLeanIMT.sol";
 import {leanIMTPoseidon2} from "./leanIMTPoseidon2.sol";
@@ -45,7 +45,7 @@ struct Verifier {
     uint8 size;
 }
 
-contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712, ReentrancyGuard {
+contract TranswarpToken is ERC20WithTransWarpMerkleTree, EIP712, ReentrancyGuard {
     // this is so leafs from received balance and spent balance wont get mixed up
     uint256 constant public TOTAL_BURNED_DOMAIN = 0x544f54414c5f4255524e4544; //  UTF8("TOTAL_BURNED").toHex()
     address internal constant POSEIDON2_ADDRESS = 0x382ABeF9789C1B5FeE54C72Bd9aaf7983726841C; // yul-recompile-200: 0xb41072641808e6186eF5246fE1990e46EB45B65A gas: 62572, huff: 0x382ABeF9789C1B5FeE54C72Bd9aaf7983726841C gas:39 627, yul-lib: 0x925e05cfb89f619BE3187Bf13D355A6D1864D24D,
@@ -96,7 +96,7 @@ contract WormholeToken is ERC20WithWormHoleMerkleTree, EIP712, ReentrancyGuard {
         Verifier[] memory _verifiers, 
         uint256[] memory _acceptedChainIds
     )
-        ERC20WithWormHoleMerkleTree(_tokenName, _tokenSymbol)
+        ERC20WithTransWarpMerkleTree(_tokenName, _tokenSymbol)
         EIP712(_tokenName, _712Version) 
     {
         AMOUNT_OF_VERIFIERS = uint8(_verifiers.length);

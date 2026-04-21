@@ -2,17 +2,17 @@
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { createPublicClient, custom, getAddress, getContract, padHex, toHex } from "viem";
-import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, WormholeToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, WormholeContractConfig, FeeDataOptionals, SpendableBurnAccount, BackendPerSize, BurnAccountSelector, SignatureInputs, SignatureData, BurnAccountSelectionForSpend, SignedProofInputs } from "./types.ts"
+import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, TranswarpToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, TranswarpContractConfig, FeeDataOptionals, SpendableBurnAccount, BackendPerSize, BurnAccountSelector, SignatureInputs, SignatureData, BurnAccountSelectionForSpend, SignedProofInputs } from "./types.ts"
 import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, RE_MINT_RELAYER_GAS, RE_MINT_RELAYER_GAS_DEFAULT_L1, SLOWEST_PROOF_PADDING, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { LeanIMT } from "@zk-kit/lean-imt";
 import { getSyncedMerkleTree, poseidon2IMTHashFunc, syncMultipleBurnAccounts } from "./syncing.ts";
 import { ExportedMerkleTreesSchema, PreSyncedTreeStringifyableSchema, type ExportedMerkleTrees } from "./schemas.ts";
 import { burn, relayTx, selfRelayTx, superSafeBurn, superSafeBurnBulk } from "./transact.ts";
-import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.ts"
-import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
+import type { TranswarpToken$Type } from "../artifacts/contracts/TranswarpToken.sol/artifacts.ts"
+import TranswarpTokenArtifact from '../artifacts/contracts/TranswarpToken.sol/TranswarpToken.json' with {"type": "json"};
 import { createRelayerInputs, hashAndProof, selectBurnAccountsForClaim, selectSmallFirst, signAndEncrypt } from "./proving.ts";
-import { getAllBurnAccounts, getCircuitSize, getContractConfig, getWormholeTokenContract } from "./utils.ts";
+import { getAllBurnAccounts, getCircuitSize, getContractConfig, getTranswarpTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 export const viemAccountNotSetErr = `viem wallet not created with account set. pls do: 
@@ -28,7 +28,7 @@ export class BurnWallet {
     viemWallet: WalletClient;
     readonly archiveNodes: ClientPerChainId;
     readonly fullNodes: ClientPerChainId
-    readonly contractConfig: { [chainId: Hex]: { [Address: Address]: WormholeContractConfig } } = {};
+    readonly contractConfig: { [chainId: Hex]: { [Address: Address]: TranswarpContractConfig } } = {};
     readonly merkleTrees: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } } = {};
 
     /**
@@ -47,7 +47,7 @@ export class BurnWallet {
     constructor(
         viemWallet: WalletClient,
         { archiveNodes, fullNodes, merkleTrees, contractConfigs, viewKeySigMessage = VIEWING_KEY_SIG_MESSAGE, acceptedChainIds = [1], chainId }:
-            { archiveNodes?: ClientPerChainId, fullNodes?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, contractConfigs?: { [chainId: Hex]: { [Address: Address]: WormholeContractConfig } }, walletDataImport?: string, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number } = {}
+            { archiveNodes?: ClientPerChainId, fullNodes?: ClientPerChainId, merkleTrees?: { [chainId: Hex]: { [Address: Address]: PreSyncedTree } }, contractConfigs?: { [chainId: Hex]: { [Address: Address]: TranswarpContractConfig } }, walletDataImport?: string, viewKeySigMessage?: string, acceptedChainIds?: number[], chainId?: number } = {}
     ) {
         if (viemWallet.account === undefined) throw new Error(viemAccountNotSetErr)
 
@@ -183,17 +183,17 @@ export class BurnWallet {
     }
 
 
-    async #getTokenContract(address: Address, { chainId, wallet = false, nodeType = "archive" }: { chainId?: number, wallet?: boolean, nodeType?: "archive" | "full" } = {}): Promise<WormholeToken> {
+    async #getTokenContract(address: Address, { chainId, wallet = false, nodeType = "archive" }: { chainId?: number, wallet?: boolean, nodeType?: "archive" | "full" } = {}): Promise<TranswarpToken> {
         chainId ??= await this.viemWallet.getChainId()
         const publicClient = await this.#getPublicClient({ type: nodeType });
         const contract = getContract({
             address,
-            abi: WormholeTokenArtifact.abi as WormholeToken$Type["abi"],
+            abi: TranswarpTokenArtifact.abi as TranswarpToken$Type["abi"],
             client: wallet
                 ? { public: publicClient, wallet: this.viemWallet }
                 : { public: publicClient },
         });
-        return contract as WormholeToken
+        return contract as TranswarpToken
     }
 
     async connect(walletClient?: WalletClient) {
@@ -329,7 +329,7 @@ export class BurnWallet {
      * and/or view key data.
      *
      * @param json - Stringified wallet export produced by {@link exportWallet}.
-     * @param wormholeTokenContract - The Wormhole token contract instance, used to sync view key data.
+     * @param transwarpTokenContract - The Transwarp token contract instance, used to sync view key data.
      * @param archiveNode - Archive node client, used to sync view key data.
      * @param options 
      * @param options.merkleTree - Whether to import the Merkle tree. Defaults to `true`.
