@@ -163,15 +163,21 @@ export function getDeterministicBurnAccounts(
 //     const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount).filter(async (b) => await wormholeToken.read.balanceOf([b.burnAddress]) === 0n)
 // }
 
-export async function getCircuitSizesFromContract(wormholeToken: WormholeToken): Promise<number[]> {
-    const AMOUNT_OF_VERIFIERS = await wormholeToken.read.AMOUNT_OF_VERIFIERS()
-    const sizes = (await Promise.all(new Array(AMOUNT_OF_VERIFIERS).fill(0).map((v, index) => wormholeToken.read.VERIFIER_SIZES([BigInt(index)]))))
-    return sizes as number[]
+export async function getCircuitSizesFromContract(address: Address, publicClient: PublicClient): Promise<number[]> {
+    const base = { address, abi: wormholeTokenAbi } as const
+    const [amountOfVerifiers] = await publicClient.multicall({
+        contracts: [{ ...base, functionName: "AMOUNT_OF_VERIFIERS" }] as any,
+        allowFailure: false,
+    }) as [number]
+    return await publicClient.multicall({
+        contracts: Array.from({ length: amountOfVerifiers }, (_, index) => ({ ...base, functionName: "VERIFIER_SIZES", args: [BigInt(index)] as const })) as any,
+        allowFailure: false,
+    }) as number[]
 }
 
 
-export async function getAcceptedChainIdFromContract(wormholeToken: WormholeToken): Promise<readonly bigint[]> {
-    return await wormholeToken.read.getAcceptedChainIds()
+export async function getAcceptedChainIdFromContract(address: Address, publicClient: PublicClient): Promise<readonly bigint[]> {
+    return await publicClient.readContract({ address, abi: wormholeTokenAbi, functionName: "getAcceptedChainIds" })
 }
 export function getCircuitSize(amountBurnAddresses: number, circuitSizes: number[]) {
     return circuitSizes.find((v) => v >= amountBurnAddresses) as number
@@ -241,49 +247,72 @@ export function getWormholeTokenContract(address: Address, client: { wallet?: Wa
     });
 }
 
+export async function checkNullifiers(nullifiers: bigint[], tokenAddress: Address, publicClient: PublicClient, blockNumber?: bigint): Promise<bigint[]> {
+    return await publicClient.multicall({
+        contracts: nullifiers.map((nullifier) => ({
+            address: tokenAddress,
+            abi: wormholeTokenAbi,
+            functionName: "nullifiers" as const,
+            args: [nullifier] as const,
+        })),
+        blockNumber,
+        allowFailure: false,
+    }) as bigint[]
+}
+
 export async function getTokenPriceInEth(token: Address, fullNode: PublicClient) {
     return false
 }
 
-export async function getContractConfig(address:Address, fullNode:PublicClient) {
-    const wormholeTokenFull = getContract({
-        address,
-        abi: WormholeTokenArtifact.abi as WormholeToken$Type["abi"],
-        client: { public: fullNode }
-    });
+export async function getContractConfig(address: Address, fullNode: PublicClient) {
+    const base = { address, abi: wormholeTokenAbi } as const
 
-    const powDifficulty = wormholeTokenFull.read.POW_DIFFICULTY()
-    const reMintLimit = wormholeTokenFull.read.RE_MINT_LIMIT();
-    const maxTreeDepth = wormholeTokenFull.read.MAX_TREE_DEPTH();
-    const isCrossChain = wormholeTokenFull.read.IS_CROSS_CHAIN()
-    const decimalsTokenPrice = wormholeTokenFull.read.decimalsTokenPrice()
-    const deploymentBlock = wormholeTokenFull.read.DEPLOYMENT_BLOCK()
-    const tokenDecimals = wormholeTokenFull.read.decimals()
-    const tokenName = wormholeTokenFull.read.name()
-    const tokenSymbol = wormholeTokenFull.read.symbol()
-    const amountFreeTokens = wormholeTokenFull.read.amountFreeTokens()
+    const [[
+        powDifficulty, reMintLimit, maxTreeDepth, isCrossChain,
+        decimalsTokenPrice, deploymentBlock, tokenDecimals, tokenName,
+        tokenSymbol, amountFreeTokens, eip712Domain, acceptedChainIds,
+    ], verifierSizeResults] = await Promise.all([
+        fullNode.multicall({
+            contracts: [
+                { ...base, functionName: "POW_DIFFICULTY" },
+                { ...base, functionName: "RE_MINT_LIMIT" },
+                { ...base, functionName: "MAX_TREE_DEPTH" },
+                { ...base, functionName: "IS_CROSS_CHAIN" },
+                { ...base, functionName: "decimalsTokenPrice" },
+                { ...base, functionName: "DEPLOYMENT_BLOCK" },
+                { ...base, functionName: "decimals" },
+                { ...base, functionName: "name" },
+                { ...base, functionName: "symbol" },
+                { ...base, functionName: "amountFreeTokens" },
+                { ...base, functionName: "eip712Domain" },
+                { ...base, functionName: "getAcceptedChainIds" },
+            ] as any,
+            allowFailure: false,
+        }) as Promise<[Hex, Hex, number, boolean, bigint, bigint, number, string, string, bigint, readonly [bigint, string, string, string, bigint, string, readonly bigint[]], readonly bigint[]]>,
+        getCircuitSizesFromContract(address, fullNode),
+    ])
 
-    const verifierSizes = getCircuitSizesFromContract(wormholeTokenFull as WormholeToken);
-    const acceptedChainIds = getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken)
-    const eip712Domain = wormholeTokenFull.read.eip712Domain()
-    const verifiersEntries = Promise.all((await verifierSizes).map(async (size, index) => [size, await wormholeTokenFull.read.VERIFIERS_PER_SIZE([size])]))
+    const verifiersPerSizeResults = await fullNode.multicall({
+        contracts: verifierSizeResults.map((size) => ({ ...base, functionName: "VERIFIERS_PER_SIZE", args: [size] as const })) as any,
+        allowFailure: false,
+    }) as Address[]
 
     const config: WormholeContractConfig = {
-        VERIFIER_SIZES: await verifierSizes,
-        VERIFIERS_PER_SIZE: Object.fromEntries(await verifiersEntries),
-        POW_DIFFICULTY: padHex(await powDifficulty, { size: 32 }),
-        RE_MINT_LIMIT: await reMintLimit,
-        MAX_TREE_DEPTH: await maxTreeDepth,
-        IS_CROSS_CHAIN: await isCrossChain,
-        ACCEPTED_CHAIN_IDS: (await acceptedChainIds).map((id) => toHex(id)),
-        EIP712_NAME: (await eip712Domain)[1],
-        EIP712_VERSION: (await eip712Domain)[2],
-        decimalsTokenPrice: toHex(await decimalsTokenPrice),
-        DEPLOYMENT_BLOCK: await deploymentBlock,
-        tokenDecimals: await tokenDecimals,
-        tokenName: await tokenName,
-        tokenSymbol: await tokenSymbol,
-        amountFreeTokens: await amountFreeTokens
+        VERIFIER_SIZES: verifierSizeResults,
+        VERIFIERS_PER_SIZE: Object.fromEntries(verifierSizeResults.map((size, index) => [size, verifiersPerSizeResults[index]])),
+        POW_DIFFICULTY: padHex(powDifficulty, { size: 32 }),
+        RE_MINT_LIMIT: reMintLimit,
+        MAX_TREE_DEPTH: maxTreeDepth,
+        IS_CROSS_CHAIN: isCrossChain,
+        ACCEPTED_CHAIN_IDS: acceptedChainIds.map((id) => toHex(id)),
+        EIP712_NAME: eip712Domain[1],
+        EIP712_VERSION: eip712Domain[2],
+        decimalsTokenPrice: toHex(decimalsTokenPrice),
+        DEPLOYMENT_BLOCK: deploymentBlock,
+        tokenDecimals: tokenDecimals,
+        tokenName: tokenName,
+        tokenSymbol: tokenSymbol,
+        amountFreeTokens: amountFreeTokens,
     }
 
     return config

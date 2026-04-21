@@ -32,7 +32,7 @@ export async function burnCheckSafe(burnAccount: NotOwnedBurnAccount, amount: bi
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode })
     // checks
     if (isCrossChain) {
-        acceptedChainIds ??= (await getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken)).map((v) => toHex(v))
+        acceptedChainIds ??= (await getAcceptedChainIdFromContract(tokenAddress, fullNode)).map((v) => toHex(v))
         if (acceptedChainIds.includes(burnAccount.chainId) === false) { throw new Error(`Burn account is on chainId:${burnAccount.chainId} but that is not a valid chainId for token: ${tokenAddress}, only these chainIds are accepted:${acceptedChainIds.toString()}`) }
     }
     const isValidPow = isValidPowNonce({
@@ -112,7 +112,7 @@ export async function safeBurn(
         maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
     ])
     if (resolvedIsCrossChain && !acceptedChainIds) {
-        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+        acceptedChainIds = (await getAcceptedChainIdFromContract(tokenAddress, fullNode)).map((v) => toHex(v))
     }
 
     await burnCheckSafe(
@@ -147,7 +147,7 @@ export async function superSafeBurn(
         maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
     ])
     if (resolvedIsCrossChain && !acceptedChainIds) {
-        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+        acceptedChainIds = (await getAcceptedChainIdFromContract(tokenAddress, fullNode)).map((v) => toHex(v))
     }
 
     await burnCheckSuperSafe(
@@ -201,7 +201,7 @@ export async function safeBurnBulk(
         maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
     ])
     if (resolvedIsCrossChain && !acceptedChainIds) {
-        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+        acceptedChainIds = (await getAcceptedChainIdFromContract(tokenAddress, fullNode)).map((v) => toHex(v))
     }
 
     await Promise.all(recipientsAndAmounts.map((item) =>
@@ -228,7 +228,7 @@ export async function superSafeBurnBulk(
         maxTreeDepth ?? await wormholeTokenFull.read.MAX_TREE_DEPTH(),
     ])
     if (resolvedIsCrossChain && !acceptedChainIds) {
-        acceptedChainIds = (await getAcceptedChainIdFromContract(wormholeTokenFull)).map((v) => toHex(v))
+        acceptedChainIds = (await getAcceptedChainIdFromContract(tokenAddress, fullNode)).map((v) => toHex(v))
     }
 
     await Promise.all(recipientsAndAmounts.map((item) =>

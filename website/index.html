@@ -120,7 +120,7 @@
       <h1>bulk safe Burn</h1>
       Burns the same amount to every burn address currently selected in the list above.
       <br>
-      One on-chain transferBulk tx, one merkle update.
+      One batch tx, uses LeanIMT.insertMany() to efficiently do merkle tree inserts at O(n) instead of O(n log n)
       <br>
       <br>
       <label for="bulkBurnAmountInput">amount per burn address</label>

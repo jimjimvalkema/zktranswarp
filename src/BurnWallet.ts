@@ -12,7 +12,7 @@ import { burn, relayTx, selfRelayTx, superSafeBurn, superSafeBurnBulk } from "./
 import type { WormholeToken$Type } from "../artifacts/contracts/WormholeToken.sol/artifacts.ts"
 import WormholeTokenArtifact from '../artifacts/contracts/WormholeToken.sol/WormholeToken.json' with {"type": "json"};
 import { createRelayerInputs, hashAndProof, selectBurnAccountsForClaim, selectSmallFirst, signAndEncrypt } from "./proving.ts";
-import { getAcceptedChainIdFromContract, getAllBurnAccounts, getCircuitSize, getCircuitSizesFromContract, getContractConfig, getWormholeTokenContract } from "./utils.ts";
+import { getAllBurnAccounts, getCircuitSize, getContractConfig, getWormholeTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 export const viemAccountNotSetErr = `viem wallet not created with account set. pls do: 

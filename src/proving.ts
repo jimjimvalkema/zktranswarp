@@ -468,9 +468,9 @@ export async function createRelayerInputs(
     syncTillBlock ??= await fullNode.getBlockNumber()
     const wormholeTokenFull = getWormholeTokenContract(tokenAddress, { public: fullNode });
     [circuitSizes, powDifficulty, allowedChainIds, reMintLimit, chainId, maxTreeDepth] = await Promise.all([
-        circuitSizes ?? getCircuitSizesFromContract(wormholeTokenFull as WormholeToken),
+        circuitSizes ?? getCircuitSizesFromContract(tokenAddress, fullNode),
         powDifficulty ?? wormholeTokenFull.read.POW_DIFFICULTY(),
-        allowedChainIds ?? getAcceptedChainIdFromContract(wormholeTokenFull as WormholeToken).then((v) => v.map((id) => toHex(id))),
+        allowedChainIds ?? getAcceptedChainIdFromContract(tokenAddress, fullNode).then((v) => v.map((id) => toHex(id))),
         reMintLimit ?? wormholeTokenFull.read.RE_MINT_LIMIT(),
         chainId ?? BigInt(await fullNode.getChainId()),
         maxTreeDepth ?? wormholeTokenFull.read.MAX_TREE_DEPTH(),
