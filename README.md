@@ -19,7 +19,7 @@ The total spend is tracked inside a note based commitment scheme.
 * Hardware wallet support: `address=poseidon2Hash(public_key,pow_nonce,"ZKWORMHOLE")` the circuit verifies a secp256k1 signature that authorize that pub_key to spend the funds. Here the hardware wallet can create the signature and then the users machine can create the proof.  
 * eip712 signing: contents of the signature are formatted with eip712, so normale ethereum (hw) wallets show human readable data that is being signed
 * multi-pends: you can spend from multiple burnAccounts in one tx. The public cant distinguish if you spend from 1,2,3 burn accounts. Since public inputs are padded to look like 3,32,100 spends.Public can only know if you spend from <=3, <=32 or <=10.
-
+* stealth address like: The protocol support an "stealth address like ux": where an sender can make an fresh burn account on the sender behave. While preserving plausible deniability for sender and no data from recipient leaking to the public or the sender.
 
 ## nullifier and balance tracking
 Instead of nullifying the entire address the circuit checks: `assert(burned_balance - total_minted >= amount_spend_in_tx)`.  
@@ -41,8 +41,8 @@ The address scheme is
 let blinded_burn_address_data = hasher([spending_pub_key, viewing_key, chain_id])
 let address = hasher([blinded_address_data_hash, pow_nonce, "ZKWORMHOLE"]).slice(-20) // remove last 12 bytes
 ```
-`"ZKWORMHOLE"`: is a string add as an extra measure to make sure zktranswarp addresses never collide with ethereum address even if they switched to poseidon2. `public_key` here is the x coordinate of the secp256k1 public key.  
-`blinded_burn_address_data` is blinded so it can be shared in public, and anyone can generate a new burn address on the recipients behave by finding a new `pow_nonce`. Then this `pow_nonce` is shared in secret and the recipient is then able to claim fund. This way the sender does not know the public key chainId or viewing key of the recipient. And the public saw only a regular transfer, and senders plausible deniability is maintained.  
+`"ZKWORMHOLE"`: is a string add as an extra measure to make sure zktranswarp addresses never collide with ethereum address even if they switched to poseidon2. `spending_pub_key` here is the x coordinate of the secp256k1 public key.  
+`blinded_burn_address_data` is blinded so it can be shared in public.
 `pow_nonce`: a number that results in a valid PoW hash that makes finding a collision with EOA addresses much harder. Specifically it adds half a bit of security for each bit of PoW. So a PoW with one leading zero = 8 bits = 4 bits of added security = 160 + 4 = 164 bits of security.   
   
 Sadly to achieve the 128 bits of security requirement for the ethereum core protocol, this PoW mechanism is unusable. 32 byte address are needed. Possibly even more if 128 bit post quantum is required (>48 bytes). Luckily post quantum pub key
@@ -53,6 +53,10 @@ assert_lt(pow_hash, pow_difficulty); //"pow failed: pow_nonce results in hash th
 ```  
 
 `address_hash` then has the first 12 bytes set to 0, so it the same length as ethereum address *(this is also the cause of that collision attack vector 😬).*
+
+## stealth address like ux support
+The address contains `blinded_burn_address_data` in it's pre-image. This is blinded by the recipients `viewing_key` so it can be shared in public, and anyone can generate a new burn address on the recipients behave by finding a new `pow_nonce`. Then this `pow_nonce` is shared in secret to the recipient, ensuring the public only sees **an** address and never knows it's an burn address. The recipient is then able to claim funds by reconstructing the burn address with that shared `pow_nonce`.  
+`blinded_burn_address_data` is blinded so it can be public without anyone knowing the public key chainId or viewing key or other data of the recipient. And the public saw only a regular transfer, and senders plausible deniability is maintained.  
 
 ## optimizations
 Merkle tree: The balances tracked in the merkle tree update on **every** transfer, even if a user never intends to use any privacy. This is to preserve plausible deniability. However this can optimized by:
@@ -89,13 +93,13 @@ yarn hardhat run scripts/deployPoseidon2.ts --network sepolia
 
 ## deployed addresses
 ### sepolia  
-TransWarpToken - [0x00BfCb575241cA4285cD20843A6bd6d026b65775](https://sepolia.etherscan.io/address/0x00BfCb575241cA4285cD20843A6bd6d026b65775)  
+TransWarpToken - [0x787c3CEd84107aeeE29e54674905B47C63992024](https://sepolia.etherscan.io/address/0x787c3CEd84107aeeE29e54674905B47C63992024)  
 
-reMint3Verifier - [0xd32fFb6e84D0C2A9E72c37548bBbb85917eE3603](https://sepolia.etherscan.io/address/0xd32fFb6e84D0C2A9E72c37548bBbb85917eE3603)  
-reMint32Verifier - [0x94250907391f063ecf3aFaABE9898cD65DfEF7FE](https://sepolia.etherscan.io/address/0x94250907391f063ecf3aFaABE9898cD65DfEF7FE)  
-reMint100Verifier - [0x85B739609d681b285da4Ad03B5AD746e46A54cAa](https://sepolia.etherscan.io/address/0x85B739609d681b285da4Ad03B5AD746e46A54cAa)  
-ZKTranscriptLib - [0x96BFB37dE8b66c395c41A5afF35f4f44a11E1Bbe](https://sepolia.etherscan.io/address/0x96BFB37dE8b66c395c41A5afF35f4f44a11E1Bbe)  
-leanIMTPoseidon2 - [0x138aFa3b2962A8f5c27Fb0bb91a4B6AB649C49d8](https://sepolia.etherscan.io/address/0x138aFa3b2962A8f5c27Fb0bb91a4B6AB649C49d8)  
+reMint3Verifier - [0x803ef880ADa65077b9DBA722d2510d71B26169EA](https://sepolia.etherscan.io/address/0x803ef880ADa65077b9DBA722d2510d71B26169EA)  
+reMint32Verifier - [0x5244F623A83574cebd08d4D2a39D0036008e2b65](https://sepolia.etherscan.io/address/0x5244F623A83574cebd08d4D2a39D0036008e2b65)  
+reMint100Verifier - [0xc55e812c85f45c21735114a5E507906a00dFcA86](https://sepolia.etherscan.io/address/0xc55e812c85f45c21735114a5E507906a00dFcA86)  
+ZKTranscriptLib - [0xd8b988472374F98D2Dc5B38321c6DA4Ae0aC2de9](https://sepolia.etherscan.io/address/0xd8b988472374F98D2Dc5B38321c6DA4Ae0aC2de9)  
+leanIMTPoseidon2 - [0x904826FA0ccB82393a214955AB805B684BA51E79](https://sepolia.etherscan.io/address/0x904826FA0ccB82393a214955AB805B684BA51E79)  
 
 
 ## install
@@ -179,5 +183,7 @@ yarn vite website;
 └──────────────────────────────────────────┴───────┴──────────┴──────────┴──────────┘
 ```
 
-## TODO EXPLAIN MULTISPENDS
-## TODO PROTOCOL SPEC
+## TODO document PROTOCOL SPEC
+## TODO make relayer service
+## TODO build PoC of "stealth address like ux"
+## TODO PoC of cross-chain
