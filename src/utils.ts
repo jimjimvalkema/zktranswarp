@@ -1,6 +1,6 @@
 import { bytesToHex, getAddress, getContract, hexToBytes, padHex, toHex, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type {
-    BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, TranswarpToken,
+    BurnAccount, BurnAccountImportable, U8AsHex, U8sAsHexArrLen32, U8sAsHexArrLen64, TransWarpToken,
     AnyBurnAccount, SyncedBurnAccount, DerivedBurnAccountImportable, UnknownBurnAccountImportable,
     DerivedBurnAccountRecoverable, UnknownBurnAccountRecoverable, FullViewKeyData, UnknownBurnAccount, ExportedViewKeyData,
     BurnAccountRecoverable,
@@ -11,10 +11,10 @@ import type {
 import type { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { FIELD_MODULUS, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { DerivedBurnAccountImportableSchema, DerivedBurnAccountRecoverableSchema, EMPTY_SYNC_FIELDS, isDerivedBurnAccount, UnknownBurnAccountImportableSchema, UnknownBurnAccountRecoverableSchema, type BurnAccountStorage } from "./schemas.ts";
-import TranswarpTokenArtifact from '../artifacts/contracts/TranswarpToken.sol/TranswarpToken.json' with {"type": "json"};
-import type { TranswarpToken$Type } from "../artifacts/contracts/TranswarpToken.sol/artifacts.js"
+import TransWarpTokenArtifact from '../artifacts/contracts/TransWarpToken.sol/TransWarpToken.json' with {"type": "json"};
+import type { TransWarpToken$Type } from "../artifacts/contracts/TransWarpToken.sol/artifacts.js"
 import { viemAccountNotSetErr } from "./BurnWallet.ts";
-export const transwarpTokenAbi = TranswarpTokenArtifact.abi as TranswarpToken$Type["abi"]
+export const transwarpTokenAbi = TransWarpTokenArtifact.abi as TransWarpToken$Type["abi"]
 export function padWithRandomHex({ arr, len, hexSize, dir }: { arr: Hex[], len: number, hexSize: number, dir: 'left' | 'right' }): Hex[] {
     const padding = Array.from({ length: len - arr.length }, () =>
         bytesToHex(crypto.getRandomValues(new Uint8Array(hexSize)))
@@ -159,7 +159,7 @@ export function getDeterministicBurnAccounts(
 }
 
 // TODO
-// export async function getFreshBurnAccount(BurnViewKeyManager: BurnViewKeyManager, transwarpToken: TranswarpTokenTest | TranswarpToken) {
+// export async function getFreshBurnAccount(BurnViewKeyManager: BurnViewKeyManager, transwarpToken: TransWarpTokenTest | TransWarpToken) {
 //     const neverUsedBurnAccounts = getAllBurnAccounts(BurnViewKeyManager.privateData, ethAccount).filter(async (b) => await transwarpToken.read.balanceOf([b.burnAddress]) === 0n)
 // }
 
@@ -236,10 +236,10 @@ export function BurnAccountToFlatArrExportedData<T>(data: ExportedViewKeyData<T>
 }
 
 
-export function getTranswarpTokenContract(address: Address, client: { wallet: WalletClient, public: PublicClient }): TranswarpToken<{ wallet: WalletClient, public: PublicClient }>;
-export function getTranswarpTokenContract(address: Address, client: { wallet: WalletClient }): TranswarpToken<{ wallet: WalletClient }>;
-export function getTranswarpTokenContract(address: Address, client: { public: PublicClient }): TranswarpToken<{ public: PublicClient }>;
-export function getTranswarpTokenContract(address: Address, client: { wallet?: WalletClient, public?: PublicClient }): TranswarpToken<any> {
+export function getTransWarpTokenContract(address: Address, client: { wallet: WalletClient, public: PublicClient }): TransWarpToken<{ wallet: WalletClient, public: PublicClient }>;
+export function getTransWarpTokenContract(address: Address, client: { wallet: WalletClient }): TransWarpToken<{ wallet: WalletClient }>;
+export function getTransWarpTokenContract(address: Address, client: { public: PublicClient }): TransWarpToken<{ public: PublicClient }>;
+export function getTransWarpTokenContract(address: Address, client: { wallet?: WalletClient, public?: PublicClient }): TransWarpToken<any> {
     return getContract({
         address,
         abi: transwarpTokenAbi,

@@ -1,6 +1,6 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 //@ts-ignore hardhat ignition does not understand file extensions
-import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName2, TranswarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName } from "../../src/constants.ts";
+import { leanIMTPoseidon2ContractName, ZKTranscriptLibContractName2, TransWarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName } from "../../src/constants.ts";
 import { POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../../src/constants.ts";
 import { toHex } from "viem";
 
@@ -27,7 +27,7 @@ export default buildModule("transwarpToken", (m) => {
     ]
     const _acceptedChainIds: bigint[] = []
     const transwarpToken = m.contract(
-        TranswarpTokenContractName,
+        TransWarpTokenContractName,
         [
             _powDifficulty,
             _reMintLimit,

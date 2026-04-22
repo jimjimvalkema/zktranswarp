@@ -2,8 +2,8 @@ import { createPublicClient, createWalletClient, custom, formatUnits, getAddress
 import type { Address, Hex, WalletClient } from 'viem'
 import { sepolia } from 'viem/chains'
 import 'viem/window';
-import type { TranswarpToken, SelfRelayInputs, BurnAccount, TranswarpContractConfig } from '../src/types.js';
-import TranswarpTokenArtifact from '../artifacts/contracts/TranswarpToken.sol/TranswarpToken.json' with {"type": "json"};
+import type { TransWarpToken, SelfRelayInputs, BurnAccount, TranswarpContractConfig } from '../src/types.js';
+import TransWarpTokenArtifact from '../artifacts/contracts/TransWarpToken.sol/TransWarpToken.json' with {"type": "json"};
 import sepoliaDeployments from "../ignition/deployments/chain-11155111/deployed_addresses.json" with {"type": "json"};
 
 import * as viem from 'viem'
@@ -36,7 +36,7 @@ const CREATING_PROOF_MSG = `The circuit verifies a signature which is a signed h
 <br>Only the viewing key can be compromised not the users funds, if the ui is compromised. (or even machine in case of hardware wallets).
 `
 
-const defaultTranswarpTokenAddress = sepoliaDeployments['transwarpToken#TranswarpToken'] as Address;
+const defaultTransWarpTokenAddress = sepoliaDeployments['transwarpToken#TransWarpToken'] as Address;
 
 // read token address from URL ?token=0x... or fall back to deployed default
 function getTokenAddressFromUrl(): Address {
@@ -47,7 +47,7 @@ function getTokenAddressFromUrl(): Address {
             return getAddress(tokenParam)
         } catch { /* invalid address, ignore */ }
     }
-    return defaultTranswarpTokenAddress
+    return defaultTransWarpTokenAddress
 }
 
 function setTokenAddressInUrl(address: Address) {
@@ -128,7 +128,7 @@ const publicClient = createPublicClient({
     transport: http(process.env.ETHEREUM_RPC),
 })
 
-let transwarpToken = getContract({ abi: TranswarpTokenArtifact.abi, address: transwarpTokenAddress, client: { public: publicClient } }) as unknown as TranswarpToken
+let transwarpToken = getContract({ abi: TransWarpTokenArtifact.abi, address: transwarpTokenAddress, client: { public: publicClient } }) as unknown as TransWarpToken
 tokenAddressInputEl.value = transwarpTokenAddress
 const contractConfig = await getContractConfig(transwarpTokenAddress, publicClient)
 //@ts-ignore
@@ -253,7 +253,7 @@ async function setNonWalletInfo(contractConfig: TranswarpContractConfig) {
 // --- wallet info ui ---
 
 async function updateWalletInfoUi(
-    transwarpTokenWallet: TranswarpToken,
+    transwarpTokenWallet: TransWarpToken,
     publicAddress: Address,
     showBurnMsg = false,
 ) {
@@ -531,10 +531,10 @@ async function connectPublicWallet() {
         window.publicWallet = walletClient
 
         const transwarpTokenWallet = getContract({
-            abi: TranswarpTokenArtifact.abi,
+            abi: TransWarpTokenArtifact.abi,
             address: transwarpTokenAddress,
             client: { wallet: walletClient, public: publicClient }
-        }) as unknown as TranswarpToken
+        }) as unknown as TransWarpToken
 
         //@ts-ignore
         window.transwarpTokenWallet = transwarpTokenWallet
@@ -555,7 +555,7 @@ async function getPublicWallet() {
     //@ts-ignore
     const publicWallet = window.publicWallet as WalletClient
     //@ts-ignore
-    const transwarpTokenWallet = window.transwarpTokenWallet as TranswarpToken
+    const transwarpTokenWallet = window.transwarpTokenWallet as TransWarpToken
     //@ts-ignore
     const publicAddress = window.publicAddress as Address
     return { publicWallet, transwarpTokenWallet, publicAddress }
@@ -689,7 +689,7 @@ async function getBurnWallet() {
 
 async function refreshAfterTx() {
     const burnWallet = (window as any).burnWallet as BurnWallet | undefined
-    const transwarpTokenWallet = (window as any).transwarpTokenWallet as TranswarpToken | undefined
+    const transwarpTokenWallet = (window as any).transwarpTokenWallet as TransWarpToken | undefined
     const publicAddress = (window as any).publicAddress as Address | undefined
 
     if (!transwarpTokenWallet || !publicAddress) return
@@ -1027,7 +1027,7 @@ async function loadTokenHandler() {
     setTokenAddressInUrl(transwarpTokenAddress)
 
     // recreate read-only contract
-    transwarpToken = getContract({ abi: TranswarpTokenArtifact.abi, address: transwarpTokenAddress, client: { public: publicClient } }) as unknown as TranswarpToken
+    transwarpToken = getContract({ abi: TransWarpTokenArtifact.abi, address: transwarpTokenAddress, client: { public: publicClient } }) as unknown as TransWarpToken
     // reset private wallet state
     //@ts-ignore
     window.burnWallet = undefined
@@ -1046,10 +1046,10 @@ async function loadTokenHandler() {
         //@ts-ignore
         const walletClient = window.publicWallet as WalletClient
         const transwarpTokenWallet = getContract({
-            abi: TranswarpTokenArtifact.abi,
+            abi: TransWarpTokenArtifact.abi,
             address: transwarpTokenAddress,
             client: { wallet: walletClient, public: publicClient }
-        }) as unknown as TranswarpToken
+        }) as unknown as TransWarpToken
         //@ts-ignore
         window.transwarpTokenWallet = transwarpTokenWallet
         //@ts-ignore
@@ -1065,7 +1065,7 @@ async function loadTokenHandler() {
         tokenLoadStatusEl!.textContent = "loaded!"
         setTimeout(() => { tokenLoadStatusEl!.textContent = "" }, 2000)
     } catch (error) {
-        tokenLoadStatusEl!.textContent = "failed - is this a valid TranswarpToken?"
+        tokenLoadStatusEl!.textContent = "failed - is this a valid TransWarpToken?"
         console.error(error)
     }
 

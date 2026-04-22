@@ -4,11 +4,11 @@ import { LeanIMT } from "@zk-kit/lean-imt"
 import type { Address, Hex, PublicClient, WalletClient } from "viem"
 import { bytesToHex, concatHex, getAddress, getContract, hexToBytes, sliceHex, toHex } from "viem"
 import { ENCRYPTED_TOTAL_MINTED_PADDING } from "./constants.ts"
-import type { BurnAccount, PreSyncedTree, SyncedBurnAccount, TranswarpToken } from "./types.ts"
+import type { BurnAccount, PreSyncedTree, SyncedBurnAccount, TransWarpToken } from "./types.ts"
 import { poseidon2Hash } from "@zkpassport/poseidon2"
 import { hashNullifier } from "./hashing.ts"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
-import { getAllBurnAccounts, getTranswarpTokenContract, transwarpTokenAbi } from "./utils.ts"
+import { getAllBurnAccounts, getTransWarpTokenContract, transwarpTokenAbi } from "./utils.ts"
 import pLimit from "p-limit"
 
 export const poseidon2IMTHashFunc: LeanIMTHashFunction = (a: bigint, b: bigint) => poseidon2Hash([a, b])
@@ -18,8 +18,8 @@ export async function getSyncedMerkleTree(
     { syncTillBlock, fullNode, preSyncedTree, deploymentBlock, blocksPerGetLogsReq }: { syncTillBlock?: bigint, fullNode?: PublicClient, preSyncedTree?: PreSyncedTree, deploymentBlock?: bigint, blocksPerGetLogsReq?: bigint } = {}
 ) {
     fullNode ??= archiveNode;
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { public: fullNode })
-    const transwarpTokenArchive = getTranswarpTokenContract(tokenAddress, { public: archiveNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { public: fullNode })
+    const transwarpTokenArchive = getTransWarpTokenContract(tokenAddress, { public: archiveNode })
     deploymentBlock ??= await transwarpTokenFull.read.DEPLOYMENT_BLOCK()
     let firstSyncBlock = deploymentBlock
     let originalStartSyncBlock = deploymentBlock
@@ -181,7 +181,7 @@ export async function syncBurnAccount(burnAccount: BurnAccount, tokenAddress: Ad
     if (prevSyncFields && BigInt(prevSyncFields.lastSyncedBlock) === syncTillBlock) {
         return burnAccount as SyncedBurnAccount
     }
-    const transwarpTokenArchive = getTranswarpTokenContract(tokenAddress, { public: archiveNode })
+    const transwarpTokenArchive = getTransWarpTokenContract(tokenAddress, { public: archiveNode })
 
     const viewingKey = BigInt(burnAccount.viewingKey)
 

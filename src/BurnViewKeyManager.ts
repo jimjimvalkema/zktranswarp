@@ -5,7 +5,7 @@ import { ethAddress, getAddress, hashMessage, padHex, recoverMessageAddress, toH
 import type { BurnAccount, UnsyncedBurnAccount, UnsyncedDerivedBurnAccount, UnsyncedUnknownBurnAccount, AnyBurnAccount, BurnAccountRecoverable, DerivedBurnAccountRecoverable, BurnAccountImportable, ExportedViewKeyData, FullViewKeyData, UnknownBurnAccountRecoverable, UnknownBurnAccountImportable, DerivedBurnAccountImportable } from "./types.ts"
 import { findPoWNonce, findPoWNonceAsync, getBurnAddress, hashBlindedAddressData, hashPow, hashViewKeyFromRoot, isValidPowNonce } from "./hashing.ts";
 import { VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
-import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getTranswarpTokenContract, signViewKeyMessage, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
+import { BurnAccountToFlatArr, BurnAccountToFlatArrExportedData, getDeterministicBurnAccounts, getTransWarpTokenContract, signViewKeyMessage, toImportableBurnAccount, toImportableDerivedBurnAccount, toImportableUnknownBurnAccount, toRecoverableBurnAccount, toRecoverableDerivedBurnAccount, toRecoverableUnknownBurnAccount } from "./utils.ts";
 import { extractPubKeyFromSig, getViewingKey } from "./signing.ts";
 import { BurnAccountSyncFieldsSchema, identifyBurnAccount, isDerivedBurnAccount, isSyncedBurnAccount } from "./schemas.ts";
 import { syncBurnAccount } from "./syncing.ts";
@@ -261,7 +261,7 @@ export class BurnViewKeyManager {
         { signingEthAccount, chainId }: { signingEthAccount?: Address, chainId?: number } = {}
     ) {
         chainId ??= await fullNode.getChainId()
-        const tokenContract = getTranswarpTokenContract(tokenAddress, { public: fullNode })
+        const tokenContract = getTransWarpTokenContract(tokenAddress, { public: fullNode })
         let isUsed: boolean;
         let burnAccount: UnsyncedBurnAccount;
         do {

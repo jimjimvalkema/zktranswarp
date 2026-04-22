@@ -6,7 +6,7 @@ import { network } from "hardhat";
 // TODO fix @warptoad/gigabridge-js why it doesn't automatically gets @aztec/aztec.js
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js"
 
-import { TranswarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
+import { TransWarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
 //import { noir_test_main_self_relay, noir_verify_sig } from "../src/noirtests.js";
 import { getBackend } from "../src/proving.ts";
 import type { ContractReturnType } from "@nomicfoundation/hardhat-viem/types";
@@ -20,7 +20,7 @@ import type { UnsyncedBurnAccount } from "../src/types.ts";
 const CIRCUIT_SIZE = 100;
 const provingThreads = 1 //1; //undefined  // giving the backend more threads makes it hang and impossible to debug // set to undefined to use max threads available
 
-export type TranswarpTokenTest = ContractReturnType<typeof TranswarpTokenContractName>
+export type TransWarpTokenTest = ContractReturnType<typeof TransWarpTokenContractName>
 
 
 let gas: any = { "transfers": {} }
@@ -29,7 +29,7 @@ describe("Token", async function () {
 
     const { viem } = await network.connect();
     const publicClient = await viem.getPublicClient();
-    let transwarpToken: ContractReturnType<typeof TranswarpTokenContractName>;
+    let transwarpToken: ContractReturnType<typeof TransWarpTokenContractName>;
     let reMintVerifier3: ContractReturnType<typeof reMint3InVerifierContractName>;
     let reMintVerifier32: ContractReturnType<typeof reMint32InVerifierContractName>;
     let reMintVerifier100: ContractReturnType<typeof reMint100InVerifierContractName>;
@@ -50,7 +50,7 @@ describe("Token", async function () {
         reMintVerifier100 = await viem.deployContract(reMint100InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
         //PrivateTransferVerifier = await viem.deployContract(PrivateTransferVerifierContractName, [], { client: { wallet: deployer }, libraries: { } });
         transwarpToken = await viem.deployContract(
-            TranswarpTokenContractName,
+            TransWarpTokenContractName,
             [
                 toHex(POW_DIFFICULTY, { size: 32 }),
                 RE_MINT_LIMIT,

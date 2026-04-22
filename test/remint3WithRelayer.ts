@@ -6,7 +6,7 @@ import { network } from "hardhat";
 // TODO fix @warptoad/gigabridge-js why it doesn't automatically gets @aztec/aztec.js
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js"
 
-import { FIELD_LIMIT, TranswarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
+import { FIELD_LIMIT, TransWarpTokenContractName, reMint3InVerifierContractName, reMint32InVerifierContractName, reMint100InVerifierContractName, leanIMTPoseidon2ContractName, ZKTranscriptLibContractName100, POW_DIFFICULTY, RE_MINT_LIMIT, MAX_TREE_DEPTH } from "../src/constants.ts";
 import { getSyncedMerkleTree } from "../src/syncing.ts";
 //import { noir_test_main_self_relay, noir_verify_sig } from "../src/noirtests.js";
 import { createRelayerInputs, getBackend } from "../src/proving.ts";
@@ -29,7 +29,7 @@ const CIRCUIT_SIZE = 3;
 const provingThreads = 1 //1; //undefined  // giving the backend more threads makes it hang and impossible to debug // set to undefined to use max threads available
 const PRE_MADE_BURN_ACCOUNTS = await readFile(path, { encoding: "utf-8" })
 
-export type TranswarpTokenTest = ContractReturnType<typeof TranswarpTokenContractName>
+export type TransWarpTokenTest = ContractReturnType<typeof TransWarpTokenContractName>
 
 
 let gas: any = { "transfers": {} }
@@ -39,7 +39,7 @@ describe("Token", async function () {
 
     const { viem } = await network.connect();
     const publicClient = await viem.getPublicClient();
-    let transwarpToken: ContractReturnType<typeof TranswarpTokenContractName>;
+    let transwarpToken: ContractReturnType<typeof TransWarpTokenContractName>;
     let reMintVerifier3: ContractReturnType<typeof reMint3InVerifierContractName>;
     let reMintVerifier32: ContractReturnType<typeof reMint32InVerifierContractName>;
     let reMintVerifier100: ContractReturnType<typeof reMint100InVerifierContractName>;
@@ -73,7 +73,7 @@ describe("Token", async function () {
         const _acceptedChainIds: bigint[] = []
 
         transwarpToken = await viem.deployContract(
-            TranswarpTokenContractName,
+            TransWarpTokenContractName,
             [
                 _powDifficulty,
                 _reMintLimit,

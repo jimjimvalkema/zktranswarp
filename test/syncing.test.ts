@@ -6,7 +6,7 @@ import { network } from "hardhat";
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js";
 
 import {
-    TranswarpTokenContractName,
+    TransWarpTokenContractName,
     reMint3InVerifierContractName,
     reMint32InVerifierContractName,
     reMint100InVerifierContractName,
@@ -32,7 +32,7 @@ const PRE_MADE_BURN_ACCOUNTS = await readFile(join(__dirname, "./data/privateDat
 describe("syncing", async function () {
     const { viem } = await network.connect();
     const publicClient = await viem.getPublicClient() as PublicClient;
-    let transwarpToken: ContractReturnType<typeof TranswarpTokenContractName>;
+    let transwarpToken: ContractReturnType<typeof TransWarpTokenContractName>;
     const [deployer, alice, bob, carol, relayer, feeEstimator] = await viem.getWalletClients()
 
     beforeEach(async function () {
@@ -45,7 +45,7 @@ describe("syncing", async function () {
         const reMintVerifier100 = await viem.deployContract(reMint100InVerifierContractName, [], { client: { wallet: deployer }, libraries: { ZKTranscriptLib: ZKTranscriptLib.address } });
 
         transwarpToken = await viem.deployContract(
-            TranswarpTokenContractName,
+            TransWarpTokenContractName,
             [
                 toHex(POW_DIFFICULTY, { size: 32 }),
                 RE_MINT_LIMIT,

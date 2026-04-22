@@ -1,18 +1,18 @@
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { getAddress, toHex } from "viem";
-import type { BackendPerSize, BurnAccount, PreSyncedTree, RelayInputs, SelfRelayInputs, UnsyncedBurnAccount, TranswarpToken } from "./types.ts";
+import type { BackendPerSize, BurnAccount, PreSyncedTree, RelayInputs, SelfRelayInputs, UnsyncedBurnAccount, TransWarpToken } from "./types.ts";
 import { UltraHonkBackend } from "@aztec/bb.js";
 import { getBurnAddressSafe, hashBlindedAddressData, hashPow, isValidPowNonce } from "./hashing.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, GAS_ESTIMATE_BUFFER_PERCENT, GAS_LIMIT_TX } from "./constants.ts";
 import { createRelayerInputs } from "./proving.ts";
 import type { BurnWallet } from "./BurnWallet.ts";
-import { getAcceptedChainIdFromContract, getTranswarpTokenContract } from "./utils.ts";
+import { getAcceptedChainIdFromContract, getTransWarpTokenContract } from "./utils.ts";
 import type { NotOwnedBurnAccount } from "./schemas.ts";
 
 
 export async function burnCheck(burnAddress: Address, amount: bigint, tokenAddress: Address, fullNode: PublicClient, { maxTreeDepth, reMintLimit }: { maxTreeDepth: number, reMintLimit: bigint }) {
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { public: fullNode })
     // state
     const balance = await transwarpTokenFull.read.balanceOf([burnAddress])
     const newBurnBalance = balance + amount
@@ -29,7 +29,7 @@ export async function burnCheck(burnAddress: Address, amount: bigint, tokenAddre
 export async function burnCheckSafe(burnAccount: NotOwnedBurnAccount, amount: bigint, tokenAddress: Address, fullNode: PublicClient, signingEthAccount: Address,
     { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }: { isCrossChain: boolean, difficulty: bigint, reMintLimit: bigint, maxTreeDepth: number, acceptedChainIds?: Hex[] }
 ) {
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { public: fullNode })
     // checks
     if (isCrossChain) {
         acceptedChainIds ??= (await getAcceptedChainIdFromContract(tokenAddress, fullNode)).map((v) => toHex(v))
@@ -57,7 +57,7 @@ export async function burnCheckSuperSafe(burnAccount: BurnAccount, amount: bigin
 }
 
 async function unsafeBurn(tokenAddress: Address, burnAddress: Address, amount: bigint, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address) {
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { wallet, public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { wallet, public: fullNode })
     const estimatedGas = await transwarpTokenFull.estimateGas.transfer([burnAddress, amount], { account: signingEthAccount })
     return await transwarpTokenFull.write.transfer([burnAddress, amount], { account: signingEthAccount, chain: null, gas: estimatedGas * GAS_ESTIMATE_BUFFER_PERCENT / 100n })
 }
@@ -77,7 +77,7 @@ export async function burn(
     burnAddress: Address, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
     { reMintLimit, maxTreeDepth }: { reMintLimit?: bigint, maxTreeDepth?: number } = {}
 ) {
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { wallet, public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { wallet, public: fullNode })
     const [resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
         reMintLimit ?? BigInt(await transwarpTokenFull.read.RE_MINT_LIMIT()),
         maxTreeDepth ?? await transwarpTokenFull.read.MAX_TREE_DEPTH(),
@@ -104,7 +104,7 @@ export async function safeBurn(
     burnAccount: NotOwnedBurnAccount, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
     { reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain, difficulty }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
 ) {
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { wallet, public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { wallet, public: fullNode })
     const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
         isCrossChain ?? transwarpTokenFull.read.IS_CROSS_CHAIN(),
         difficulty ?? BigInt(await transwarpTokenFull.read.POW_DIFFICULTY()),
@@ -139,7 +139,7 @@ export async function superSafeBurn(
     burnAccount: BurnAccount, amount: bigint, tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address,
     { difficulty, reMintLimit, maxTreeDepth, acceptedChainIds, isCrossChain }: { isCrossChain?: boolean, difficulty?: bigint, reMintLimit?: bigint, maxTreeDepth?: number, acceptedChainIds?: Hex[] } = {}
 ) {
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { wallet, public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { wallet, public: fullNode })
     const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
         isCrossChain ?? transwarpTokenFull.read.IS_CROSS_CHAIN(),
         difficulty ?? BigInt(await transwarpTokenFull.read.POW_DIFFICULTY()),
@@ -161,7 +161,7 @@ export async function superSafeBurn(
 // ── Bulk burn functions (one transferBulk tx) ────────────────────────
 
 async function unsafeBurnBulk(recipientsAndAmounts: { burnAddress: Address, amount: bigint }[], tokenAddress: Address, wallet: WalletClient, fullNode: PublicClient, signingEthAccount: Address) {
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { wallet, public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { wallet, public: fullNode })
     const burnAddresses = recipientsAndAmounts.map((item) => item.burnAddress)
     const amounts = recipientsAndAmounts.map((item) => item.amount)
     const estimatedGas = await transwarpTokenFull.estimateGas.transferBulk([burnAddresses, amounts], { account: signingEthAccount })
@@ -174,7 +174,7 @@ export async function burnBulk(
 ) {
     if (recipientsAndAmounts.length === 0) { throw new Error("burnBulk requires at least one item") }
 
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { public: fullNode })
     const [resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
         reMintLimit ?? BigInt(await transwarpTokenFull.read.RE_MINT_LIMIT()),
         maxTreeDepth ?? await transwarpTokenFull.read.MAX_TREE_DEPTH(),
@@ -193,7 +193,7 @@ export async function safeBurnBulk(
 ) {
     if (recipientsAndAmounts.length === 0) { throw new Error("safeBurnBulk requires at least one item") }
 
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { wallet, public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { wallet, public: fullNode })
     const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
         isCrossChain ?? transwarpTokenFull.read.IS_CROSS_CHAIN(),
         difficulty ?? BigInt(await transwarpTokenFull.read.POW_DIFFICULTY()),
@@ -220,7 +220,7 @@ export async function superSafeBurnBulk(
 ) {
     if (recipientsAndAmounts.length === 0) { throw new Error("superSafeBurnBulk requires at least one item") }
 
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { wallet, public: fullNode })
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { wallet, public: fullNode })
     const [resolvedIsCrossChain, resolvedDifficulty, resolvedReMintLimit, resolvedMaxTreeDepth] = await Promise.all([
         isCrossChain ?? transwarpTokenFull.read.IS_CROSS_CHAIN(),
         difficulty ?? BigInt(await transwarpTokenFull.read.POW_DIFFICULTY()),
@@ -250,7 +250,7 @@ export async function superSafeBurnBulk(
  * @param recipient           - Address that will receive the re-minted tokens (required).
  * @param burnViewKeyManager       - The caller's private wallet containing burn accounts and signing keys (required).
  * @param burnAddresses       - Burn addresses to spend from (required).
- * @param transwarpToken       - Contract instance for the TranswarpToken (required).
+ * @param transwarpToken       - Contract instance for the TransWarpToken (required).
  * @param archiveNode       - Archive-node viem PublicClient used for syncing and log queries (required).
  *
  * --- Defaults via RPC call if not set ---
@@ -279,7 +279,7 @@ export async function proofAndSelfRelay(
     recipient: Address,
     amount: bigint,
     burnViewKeyManager: BurnViewKeyManager,
-    transwarpToken: TranswarpToken,
+    transwarpToken: TransWarpToken,
     archiveNode: PublicClient,
     signingEthAccount: Address,
     { burnAddresses, threads, callData = "0x", callValue = 0n, callCanFail = false, preSyncedTree, backends, deploymentBlock, blocksPerGetLogsReq, circuitSize, maxTreeDepth, encryptedBlobLen = ENCRYPTED_TOTAL_MINTED_PADDING + EAS_BYTE_LEN_OVERHEAD, powDifficulty, reMintLimit }:
@@ -325,10 +325,10 @@ export async function proofAndSelfRelay(
  *
  * @param selfRelayInputs       - JSON-serializable relay inputs (all values are Hex strings).
  * @param wallet                - Viem WalletClient that signs and sends the transaction.
- * @param transwarpTokenContract - TranswarpToken contract instance with write access.
+ * @param transwarpTokenContract - TransWarpToken contract instance with write access.
  */
 export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: WalletClient) {
-    const transwarpTokenContract = getTranswarpTokenContract(selfRelayInputs.signatureInputs.contract, { wallet: wallet })
+    const transwarpTokenContract = getTransWarpTokenContract(selfRelayInputs.signatureInputs.contract, { wallet: wallet })
     const _totalMintedLeafs = selfRelayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.total_minted_leaf))
     const _nullifiers = selfRelayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.nullifier))
     const _root = BigInt(selfRelayInputs.publicInputs.root)
@@ -371,10 +371,10 @@ export async function selfRelayTx(selfRelayInputs: SelfRelayInputs, wallet: Wall
  *
  * @param relayInputs           - JSON-serializable relay inputs (all values are Hex strings).
  * @param wallet                - Viem WalletClient that signs and sends the transaction (the relayer).
- * @param transwarpTokenContract - TranswarpToken contract instance with write access.
+ * @param transwarpTokenContract - TransWarpToken contract instance with write access.
  */
 export async function relayTx(relayInputs: RelayInputs, wallet: WalletClient, account?: Address) {
-    const transwarpTokenContract = getTranswarpTokenContract(relayInputs.signatureInputs.contract, { wallet: wallet })
+    const transwarpTokenContract = getTransWarpTokenContract(relayInputs.signatureInputs.contract, { wallet: wallet })
     const _totalMintedLeafs = relayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.total_minted_leaf))
     const _nullifiers = relayInputs.publicInputs.burn_data_public.map((v) => BigInt(v.nullifier))
     const _root = BigInt(relayInputs.publicInputs.root)

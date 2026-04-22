@@ -2,17 +2,17 @@
 
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 import { createPublicClient, custom, getAddress, getContract, padHex, toHex } from "viem";
-import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, TranswarpToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, TranswarpContractConfig, FeeDataOptionals, SpendableBurnAccount, BackendPerSize, BurnAccountSelector, SignatureInputs, SignatureData, BurnAccountSelectionForSpend, SignedProofInputs } from "./types.ts"
+import type { BurnAccount, PreSyncedTreeStringifyable, PreSyncedTree, ExportedViewKeyData, TransWarpToken, SelfRelayInputs, RelayInputs, CreateRelayerInputsOpts, FeeData, ClientPerChainId, TranswarpContractConfig, FeeDataOptionals, SpendableBurnAccount, BackendPerSize, BurnAccountSelector, SignatureInputs, SignatureData, BurnAccountSelectionForSpend, SignedProofInputs } from "./types.ts"
 import { EAS_BYTE_LEN_OVERHEAD, ENCRYPTED_TOTAL_MINTED_PADDING, RE_MINT_RELAYER_GAS, RE_MINT_RELAYER_GAS_DEFAULT_L1, SLOWEST_PROOF_PADDING, VIEWING_KEY_SIG_MESSAGE } from "./constants.ts";
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts";
 import { LeanIMT } from "@zk-kit/lean-imt";
 import { getSyncedMerkleTree, poseidon2IMTHashFunc, syncMultipleBurnAccounts } from "./syncing.ts";
 import { ExportedMerkleTreesSchema, PreSyncedTreeStringifyableSchema, type ExportedMerkleTrees } from "./schemas.ts";
 import { burn, relayTx, selfRelayTx, superSafeBurn, superSafeBurnBulk } from "./transact.ts";
-import type { TranswarpToken$Type } from "../artifacts/contracts/TranswarpToken.sol/artifacts.ts"
-import TranswarpTokenArtifact from '../artifacts/contracts/TranswarpToken.sol/TranswarpToken.json' with {"type": "json"};
+import type { TransWarpToken$Type } from "../artifacts/contracts/TransWarpToken.sol/artifacts.ts"
+import TransWarpTokenArtifact from '../artifacts/contracts/TransWarpToken.sol/TransWarpToken.json' with {"type": "json"};
 import { createRelayerInputs, hashAndProof, selectBurnAccountsForClaim, selectSmallFirst, signAndEncrypt } from "./proving.ts";
-import { getAllBurnAccounts, getCircuitSize, getContractConfig, getTranswarpTokenContract } from "./utils.ts";
+import { getAllBurnAccounts, getCircuitSize, getContractConfig, getTransWarpTokenContract } from "./utils.ts";
 //import { findPoWNonceAsync } from "./hashingAsync.js";
 
 export const viemAccountNotSetErr = `viem wallet not created with account set. pls do: 
@@ -169,7 +169,7 @@ export class BurnWallet {
             client = this.fullNodes[chainId]
         }
         if (client === undefined) {
-            //throw new Error(`no client available for this chain id:${chainId}`) 
+            //throw new Error(`no client available for this chain id:${chainId}`)
             console.warn(`no ${type} client available for this chain id:${chainId}. Using wallet client instead and assuming it can handle it!`)
             client = createPublicClient({
                 chain: this.viemWallet.chain,
@@ -179,21 +179,28 @@ export class BurnWallet {
                 throw new Error(`could not make archive client from wallet client, wallet client is not connected to this chainId`)
             }
         }
+        if (!client.chain?.contracts?.multicall3) {
+            return createPublicClient({
+                chain: client.chain,
+                transport: custom({ request: (args: any) => client.request(args as any) }),
+                batch: { multicall: { deployless: true } },
+            })
+        }
         return client
     }
 
 
-    async #getTokenContract(address: Address, { chainId, wallet = false, nodeType = "archive" }: { chainId?: number, wallet?: boolean, nodeType?: "archive" | "full" } = {}): Promise<TranswarpToken> {
+    async #getTokenContract(address: Address, { chainId, wallet = false, nodeType = "archive" }: { chainId?: number, wallet?: boolean, nodeType?: "archive" | "full" } = {}): Promise<TransWarpToken> {
         chainId ??= await this.viemWallet.getChainId()
         const publicClient = await this.#getPublicClient({ type: nodeType });
         const contract = getContract({
             address,
-            abi: TranswarpTokenArtifact.abi as TranswarpToken$Type["abi"],
+            abi: TransWarpTokenArtifact.abi as TransWarpToken$Type["abi"],
             client: wallet
                 ? { public: publicClient, wallet: this.viemWallet }
                 : { public: publicClient },
         });
-        return contract as TranswarpToken
+        return contract as TransWarpToken
     }
 
     async connect(walletClient?: WalletClient) {

@@ -37,7 +37,7 @@ So please double check the url!
 `
 
 //------------
-export const TranswarpTokenContractName = "TranswarpToken"
+export const TransWarpTokenContractName = "TransWarpToken"
 export const leanIMTPoseidon2ContractName = "leanIMTPoseidon2"
 export const reMint3InVerifierContractName = "reMint3Verifier"
 export const reMint32InVerifierContractName = "reMint32Verifier"
@@ -126,7 +126,7 @@ export const RE_MINT_RELAYER_GAS: { [chainId: Hex]: { [contract: Address]: { [ci
     // [toHex(1)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
     // [toHex(31337)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
     // [toHex(11155111)]: {
-    //     [deployedAddressesSepolia["transwarpToken#TranswarpToken"]]: RE_MINT_RELAYER_GAS_DEFAULT_L1
+    //     [deployedAddressesSepolia["transwarpToken#TransWarpToken"]]: RE_MINT_RELAYER_GAS_DEFAULT_L1
     // },
     //[toHex(17000)]: RE_MINT_RELAYER_GAS_DEFAULT_L1,
 } as const

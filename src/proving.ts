@@ -1,6 +1,6 @@
 import { getAddress, toHex } from "viem"
 import type { Hex, Address, PublicClient } from "viem"
-import type { MerkleData, SpendableBalanceProof, PreSyncedTree, SignatureData, U1AsHexArr, U32AsHex, TranswarpToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount, BurnAccountSelector, ProofInputs, BurnAccount } from "./types.js"
+import type { MerkleData, SpendableBalanceProof, PreSyncedTree, SignatureData, U1AsHexArr, U32AsHex, TransWarpToken, PublicProofInputs, BurnDataPublic, BurnDataPrivate, PrivateProofInputs, FakeBurnAccount, CreateRelayerInputsOpts, FeeData, SelfRelayInputs, SignatureInputs, SignatureInputsWithFee, BurnAccountProof, FakeBurnAccountProof, RelayInputs, SyncedBurnAccount, BackendPerSize, SpendableBurnAccount, BurnAccountSelector, ProofInputs, BurnAccount } from "./types.js"
 import { EAS_BYTE_LEN_OVERHEAD, EMPTY_UNFORMATTED_MERKLE_PROOF, ENCRYPTED_TOTAL_MINTED_PADDING } from "./constants.ts"
 import { hashTotalMintedLeaf, hashNullifier, hashTotalBurnedLeaf, hashFakeLeaf, hashFakeNullifier } from "./hashing.ts"
 import type { LeanIMTMerkleProof } from "@zk-kit/lean-imt"
@@ -22,7 +22,7 @@ const circuits: { [circuitSize: number]: any } = {
 //import { Fr } from "@aztec/aztec.js"
 import { BurnViewKeyManager } from "./BurnViewKeyManager.ts"
 import { assert } from "node:console"
-import { getAcceptedChainIdFromContract, getAllBurnAccounts, getAvailableThreads, getCircuitSize, getCircuitSizesFromContract, getTranswarpTokenContract, hexToU8AsHexLen32, padArray, padWithRandomHex, randomBN254FieldElement } from "./utils.ts"
+import { getAcceptedChainIdFromContract, getAllBurnAccounts, getAvailableThreads, getCircuitSize, getCircuitSizesFromContract, getTransWarpTokenContract, hexToU8AsHexLen32, padArray, padWithRandomHex, randomBN254FieldElement } from "./utils.ts"
 import { signPrivateTransfer } from "./signing.ts"
 
 export function formatMerkleProof(merkleProof: LeanIMTMerkleProof<bigint>, maxTreeDepth: number): MerkleData {
@@ -422,7 +422,7 @@ export async function createRelayerInputs(
  * @param recipient           - Address that will receive the re-minted tokens (required).
  * @param amount              - Amount to re-mint (required).
  * @param burnViewKeyManager  - The caller's private wallet containing burn accounts and signing keys (required).
- * @param tokenAddress - Address of the TranswarpToken contract (required).
+ * @param tokenAddress - Address of the TransWarpToken contract (required).
  * @param archiveNode         - Archive-node viem PublicClient used for syncing and log queries (required).
  * @param signingEthAccount   - Ethereum account used to sign the private transfer (required).
  *
@@ -466,7 +466,7 @@ export async function createRelayerInputs(
     signingEthAccount = getAddress(signingEthAccount)
     fullNode ??= archiveNode
     syncTillBlock ??= await fullNode.getBlockNumber()
-    const transwarpTokenFull = getTranswarpTokenContract(tokenAddress, { public: fullNode });
+    const transwarpTokenFull = getTransWarpTokenContract(tokenAddress, { public: fullNode });
     [circuitSizes, powDifficulty, allowedChainIds, reMintLimit, chainId, maxTreeDepth] = await Promise.all([
         circuitSizes ?? getCircuitSizesFromContract(tokenAddress, fullNode),
         powDifficulty ?? transwarpTokenFull.read.POW_DIFFICULTY(),

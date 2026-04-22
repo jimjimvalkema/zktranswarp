@@ -18,6 +18,7 @@ The total received is just the burned balance.
 The total spend is tracked inside a note based commitment scheme.   
 * Hardware wallet support: `address=poseidon2Hash(public_key,pow_nonce,"ZKWORMHOLE")` the circuit verifies a secp256k1 signature that authorize that pub_key to spend the funds. Here the hardware wallet can create the signature and then the users machine can create the proof.  
 * eip712 signing: contents of the signature are formatted with eip712, so normale ethereum (hw) wallets show human readable data that is being signed
+* multi-pends: you can spend from multiple burnAccounts in one tx. The public cant distinguish if you spend from 1,2,3 burn accounts. Since public inputs are padded to look like 3,32,100 spends.Public can only know if you spend from <=3, <=32 or <=10.
 
 
 ## nullifier and balance tracking
@@ -53,17 +54,6 @@ assert_lt(pow_hash, pow_difficulty); //"pow failed: pow_nonce results in hash th
 
 `address_hash` then has the first 12 bytes set to 0, so it the same length as ethereum address *(this is also the cause of that collision attack vector 😬).*
 
-## TODO EXPLAIN MULTISPENDS
-## TODO PROTOCOL SPEC
-## TODO rename token to not be workHoleToken wormToken. Since it confuses with the worm token live on mainnet
-## TODO rename all inconsistent naming
-privateTransfer -> remintTransaction, privateWallet -> burnWallet, amountSpent -> amountReMinted, amountReceived -> amountBurned  
-Technically nothing is actually burned or reMinted, But that is the original language 7503 used so it is preferred and more clear.  
-Instead docs should just explain that you can treat the accounting like that (spent + received)  
-# TODO rename repo
-Something like, erc20 with native plausible deniability
-# TODO off by one bug in gigaBridge/ultils scanEventInchunks
-
 ## optimizations
 Merkle tree: The balances tracked in the merkle tree update on **every** transfer, even if a user never intends to use any privacy. This is to preserve plausible deniability. However this can optimized by:
 * Only updating the recipient in the transfer, since burn addresses will never be senders! *(note that this does make the balance inaccurate for non burn addresses)*
@@ -89,7 +79,7 @@ setup secrets:
 
 deploy main contracts:  
 ```shell
-yarn hardhat ignition deploy ignition/modules/wormtoken.ts --verify --network sepolia
+yarn hardhat ignition deploy ignition/modules/warptoken.ts --verify --network sepolia
 ```  
 
 deploy poseidon2 hasher with create2 (if it's not deployed yet)
@@ -99,7 +89,7 @@ yarn hardhat run scripts/deployPoseidon2.ts --network sepolia
 
 ## deployed addresses
 ### sepolia  
-TranswarpToken - [0x00BfCb575241cA4285cD20843A6bd6d026b65775](https://sepolia.etherscan.io/address/0x00BfCb575241cA4285cD20843A6bd6d026b65775)  
+TransWarpToken - [0x00BfCb575241cA4285cD20843A6bd6d026b65775](https://sepolia.etherscan.io/address/0x00BfCb575241cA4285cD20843A6bd6d026b65775)  
 
 reMint3Verifier - [0xd32fFb6e84D0C2A9E72c37548bBbb85917eE3603](https://sepolia.etherscan.io/address/0xd32fFb6e84D0C2A9E72c37548bBbb85917eE3603)  
 reMint32Verifier - [0x94250907391f063ecf3aFaABE9898cD65DfEF7FE](https://sepolia.etherscan.io/address/0x94250907391f063ecf3aFaABE9898cD65DfEF7FE)  
@@ -188,3 +178,6 @@ yarn vite website;
 │ reMint (selfRelay, size 100)             │ 11    │ 12450245 │ 12550202 │ 12496333 │
 └──────────────────────────────────────────┴───────┴──────────┴──────────┴──────────┘
 ```
+
+## TODO EXPLAIN MULTISPENDS
+## TODO PROTOCOL SPEC

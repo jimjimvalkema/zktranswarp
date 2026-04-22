@@ -1,5 +1,5 @@
 import type { Address, GetContractReturnType, Hex, PublicClient, WalletClient } from "viem";
-import type { TranswarpToken$Type } from "../artifacts/contracts/TranswarpToken.sol/artifacts.js";
+import type { TransWarpToken$Type } from "../artifacts/contracts/TransWarpToken.sol/artifacts.js";
 import type { InputMap } from "@noir-lang/noir_js";
 import type { UltraHonkBackend } from "@aztec/bb.js";
 import { LeanIMT } from "@zk-kit/lean-imt";
@@ -11,8 +11,8 @@ export type TranswarpClientArg =
     | { public: PublicClient }
     | { wallet: WalletClient };
 
-export type TranswarpToken<TClient extends TranswarpClientArg = { public: PublicClient; wallet: WalletClient }> =
-    GetContractReturnType<TranswarpToken$Type["abi"], TClient>;
+export type TransWarpToken<TClient extends TranswarpClientArg = { public: PublicClient; wallet: WalletClient }> =
+    GetContractReturnType<TransWarpToken$Type["abi"], TClient>;
 // we could use import type { FixedLengthArray } from 'type-fest';
 // but for now i just do branded types so it yells at you if you do something stupid, but it doesn't check the length
 export type U8AsHex = Hex & { __brand: 'u8AsHex' }

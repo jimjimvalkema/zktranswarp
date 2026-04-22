@@ -4,7 +4,7 @@ import { network } from "hardhat";
 import { deployPoseidon2Huff } from "@warptoad/gigabridge-js";
 
 import {
-    TranswarpTokenContractName,
+    TransWarpTokenContractName,
     reMint3InVerifierContractName,
     reMint32InVerifierContractName,
     reMint100InVerifierContractName,
@@ -66,7 +66,7 @@ describe("Verifier gas", async function () {
     };
 
     const transwarpToken = await viem.deployContract(
-        TranswarpTokenContractName,
+        TransWarpTokenContractName,
         [
             toHex(POW_DIFFICULTY, { size: 32 }),
             RE_MINT_LIMIT,
@@ -140,7 +140,7 @@ describe("Verifier gas", async function () {
             );
 
             // Reconstruct the exact bytes32[] publicInputs the contract feeds the verifier.
-            // Reuse TranswarpToken._formatPublicInputs (it's public) so we don't duplicate that logic here.
+            // Reuse TransWarpToken._formatPublicInputs (it's public) so we don't duplicate that logic here.
             const _totalMintedLeafs = selfRelayInputs.publicInputs.burn_data_public.map((v) =>
                 BigInt(v.total_minted_leaf),
             );
