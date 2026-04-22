@@ -1,7 +1,7 @@
 # An alternative implementation of EIP7503 that is account based and has re-usable burn address
 This repo is a PoC for a better method for doing plausible deniability on ethereum.   
 This repo is built as a ERC-20 compatible token but it can and **should** also be researched to be at the base-layer of ethereum!
-You can clone the repo and try-out the ui or try it on sepolia here: https://eip7503-erc20.jimjim.dev/
+You can clone the repo and try-out the ui or try it on sepolia here: https://zktranswarp.jimjim.dev
 
 ## The original EIP7503 
 * Base layer of ethereum
@@ -18,8 +18,9 @@ The total received is just the burned balance.
 The total spend is tracked inside a note based commitment scheme.   
 * Hardware wallet support: `address=poseidon2Hash(public_key,pow_nonce,"ZKWORMHOLE")` the circuit verifies a secp256k1 signature that authorize that pub_key to spend the funds. Here the hardware wallet can create the signature and then the users machine can create the proof.  
 * eip712 signing: contents of the signature are formatted with eip712, so normale ethereum (hw) wallets show human readable data that is being signed
-* multi-pends: you can spend from multiple burnAccounts in one tx. The public cant distinguish if you spend from 1,2,3 burn accounts. Since public inputs are padded to look like 3,32,100 spends.Public can only know if you spend from <=3, <=32 or <=10.
+* multi-spends: you can spend from multiple burnAccounts in one tx. The public cant distinguish if you spend from 1,2,3 burn accounts. Since public inputs are padded to look like 3,32,100 spends.Public can only know if you spend from <=3, <=32 or <=10.
 * stealth address like: The protocol support an "stealth address like ux": where an sender can make an fresh burn account on the sender behave. While preserving plausible deniability for sender and no data from recipient leaking to the public or the sender.
+* The address scheme is forward compatible with a warptoad like cross-chain privacy.
 
 ## nullifier and balance tracking
 Instead of nullifying the entire address the circuit checks: `assert(burned_balance - total_minted >= amount_spend_in_tx)`.  

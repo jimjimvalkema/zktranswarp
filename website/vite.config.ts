@@ -5,7 +5,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, './', '')
   return {
     server: {
-      allowedHosts: ['eip7503-erc20.jimjim.dev', 'erc20-eip7503.jimjim.dev'],
+      allowedHosts: ['eip7503-erc20.jimjim.dev', 'erc20-eip7503.jimjim.dev', 'zktranswarp.jimjim.dev'],
     },
     define: {
       'process.env.ETHEREUM_RPC': JSON.stringify(env.ETHEREUM_RPC),
