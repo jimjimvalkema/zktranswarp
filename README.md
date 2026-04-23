@@ -15,7 +15,13 @@ You can clone the repo and try-out the ui or try it on sepolia here: https://zkt
 * Uses a in-contract binary merkle tree with the poseidon2 hash function. 
 * Re-usable address: The balance tracking is split into 2, the total received and total spend.  
 The total received is just the burned balance.  
-The total spend is tracked inside a note based commitment scheme.   
+The total spend is tracked inside a note based commitment scheme.
+* account based: most anonimity protocols are not account based but UTXO based (zcash, railgun). This means they have: 
+  - O(N) proof time, N = every tx recieved.
+  - O(N) sync time, N = **every** transaction on chain, because they do trial decryption on all of them.  
+**But in this protocol:**
+  - O(1) proof time, someone can recieve millions transactions and only need seconds to proof it.
+  - O(N) sync time, but N is **only** the txs **the sender made**. Which means someone who did not send any transactions, and has not synced in months, can still nearly instantly sync their account. (granted their ehtereum node is synced)  
 * Hardware wallet support: `address=poseidon2Hash(public_key,pow_nonce,"ZKWORMHOLE")` the circuit verifies a secp256k1 signature that authorize that pub_key to spend the funds. Here the hardware wallet can create the signature and then the users machine can create the proof.  
 * eip712 signing: contents of the signature are formatted with eip712, so normale ethereum (hw) wallets show human readable data that is being signed
 * multi-spends: you can spend from multiple burnAccounts in one tx. The public cant distinguish if you spend from 1,2,3 burn accounts. Since public inputs are padded to look like 3,32,100 spends.Public can only know if you spend from <=3, <=32 or <=10.
